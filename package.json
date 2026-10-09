@@ -1,0 +1,20 @@
+{
+  "name": "homemail",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Self-hosted multi-user webmail client (Thunderbird-style) for homelabs",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w server & npm run dev -w web",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "npm run start -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "esbuild@0.28.2": true
+  }
+}

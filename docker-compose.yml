@@ -1,0 +1,32 @@
+services:
+  homemail:
+    build: .
+    image: homemail:latest
+    container_name: homemail
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - homemail-data:/data
+
+  # Optional: Proton Mail Bridge, needed for Proton Mail accounts (paid Proton plan).
+  # This is a community-maintained image; review it and pin a version before use.
+  # First-time setup (interactive):
+  #   docker compose run --rm protonmail-bridge init
+  #   > login        (sign in to Proton)
+  #   > info         (shows the IMAP/SMTP username and bridge password to use in HomeMail)
+  #   > exit
+  # Then start it with the rest of the stack. In HomeMail choose "Proton Mail (via Proton Mail Bridge)";
+  # the defaults (host protonmail-bridge, IMAP 143 / SMTP 25, STARTTLS, self-signed) match this service.
+  #
+  # protonmail-bridge:
+  #   image: shenxn/protonmail-bridge:<pin-a-version>
+  #   container_name: protonmail-bridge
+  #   restart: unless-stopped
+  #   volumes:
+  #     - protonmail-bridge:/root
+
+volumes:
+  homemail-data:
+  # protonmail-bridge:
