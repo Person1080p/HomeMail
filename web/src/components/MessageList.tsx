@@ -14,6 +14,7 @@ export function MessageList({
   accountLabel,
   onRowClick,
   onRowOpen,
+  onRowMenu,
   onToggleFlag,
   onLoadMore,
   onDragStart,
@@ -30,6 +31,7 @@ export function MessageList({
   accountLabel?: (accountId: number) => string;
   onRowClick: (m: MailItem, e: MouseEvent) => void;
   onRowOpen: (m: MailItem) => void;
+  onRowMenu: (m: MailItem, e: MouseEvent) => void;
   onToggleFlag: (m: MailItem) => void;
   onLoadMore: () => void;
   onDragStart: (m: MailItem) => void;
@@ -60,6 +62,7 @@ export function MessageList({
             className={`msg-row ${m.seen ? '' : 'unread'} ${isSel ? 'selected' : ''} ${openKey === m.key ? 'open' : ''}`}
             onClick={(e) => onRowClick(m, e)}
             onDoubleClick={() => onRowOpen(m)}
+            onContextMenu={(e) => onRowMenu(m, e)}
             draggable
             onDragStart={(e) => {
               e.dataTransfer.setData('application/x-homemail', m.key);

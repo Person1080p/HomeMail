@@ -6,7 +6,7 @@ import { FolderPane, type FolderActions, type FolderState } from './FolderPane';
 import { MessageList } from './MessageList';
 import { MessageView } from './MessageView';
 import { Icon } from './Icon';
-import { Menu, Spinner, useAction, useLocalStorage, useToast } from './ui';
+import { ContextMenu, Menu, Spinner, useAction, useLocalStorage, useToast, type MenuEntry } from './ui';
 import { MessageTab } from './MessageTab';
 import type { ReaderTab } from '../context';
 import { replyOptions, forwardOptions, draftOptions } from './compose/options';
@@ -349,6 +349,78 @@ export function MailView({ active, onUnreadChange }: { active: boolean; onUnread
 
   const openInTab = (m: MailItem) => openMessage({ accountId: m.accountId, folder: m.folder, id: m.id }, m.subject);
 
+  /* ---------- right-click menu ---------- */
+
+  const [rowMenu, setRowMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
+  const closeRowMenu = useCallback(() => setRowMenu(null), []);
+
+  /** Loads a message for reply or forward without marking it read. */
+  const withFull = async (m: MailItem, fn: (acc: Account, full: FullMessage) => void) => {
+    const acc = accounts.find((a) => a.id === m.accountId);
+    if (!acc) return;
+    const full = await run(() => api<FullMessage>('GET', mailPath(m.accountId, `/messages/${m.id}?${qs({ folder: m.folder, peek: 1 })}`)));
+    if (full) fn(acc, full);
+  };
+
+  const rowMenuEntries = (list: MailItem[]): MenuEntry[] => {
+    const one = list.length === 1 ? list[0] : null;
+    const accountId = list.every((m) => m.accountId === list[0].accountId) ? list[0].accountId : undefined;
+    const folders = accountId === undefined ? [] : foldersOf(accountId);
+    const special = (use: string) => folders.find((f) => f.specialUse === use);
+    const inFolder = (f: Folder | undefined) => !!f && list.every((m) => m.folder === f.path);
+    const sameFolder = list.every((m) => m.folder === list[0].folder) ? list[0].folder : undefined;
+    const isDraft = !!one && (one.draft || inFolder(special('\\Drafts')));
+    const archive = special('\\Archive');
+    const junk = special('\\Junk');
+    const inbox = special('\\Inbox');
+    const inTrash = inFolder(special('\\Trash'));
+    const moveTargets = moveTargetsFor(accountId, sameFolder);
+
+    const entries: MenuEntry[] = [];
+    if (one) {
+      entries.push({ label: 'Open in new tab', icon: 'expand', shortcut: 'Enter', onSelect: () => openInTab(one) }, 'separator');
+      if (isDraft) entries.push({ label: 'Edit draft', icon: 'pencil', onSelect: () => withFull(one, (acc, full) => compose(draftOptions(acc, one.folder, full))) });
+      else
+        entries.push(
+          { label: 'Reply', icon: 'reply', shortcut: 'R', onSelect: () => withFull(one, (acc, full) => compose(replyOptions(acc, one.folder, full, false))) },
+          { label: 'Reply all', icon: 'replyAll', shortcut: 'A', onSelect: () => withFull(one, (acc, full) => compose(replyOptions(acc, one.folder, full, true))) },
+          { label: 'Forward', icon: 'forward', shortcut: 'F', onSelect: () => withFull(one, (acc, full) => compose(forwardOptions(acc, one.folder, full))) },
+        );
+      entries.push('separator');
+    } else {
+      entries.push({ heading: `${list.length} messages` });
+    }
+
+    if (list.some((m) => !m.seen)) entries.push({ label: 'Mark as read', icon: 'mailOpen', shortcut: one ? 'U' : undefined, onSelect: () => setFlags(list, { seen: true }) });
+    if (list.some((m) => m.seen)) entries.push({ label: 'Mark as unread', icon: 'mail', shortcut: one ? 'U' : undefined, onSelect: () => setFlags(list, { seen: false }) });
+    if (list.some((m) => !m.flagged)) entries.push({ label: 'Star', icon: 'star', shortcut: one ? 'S' : undefined, onSelect: () => setFlags(list, { flagged: true }) });
+    if (list.some((m) => m.flagged)) entries.push({ label: 'Remove star', icon: 'star', shortcut: one ? 'S' : undefined, onSelect: () => setFlags(list, { flagged: false }) });
+
+    if (accountId !== undefined) {
+      const move: MenuEntry[] = [];
+      if (moveTargets.length) move.push({ label: 'Move to', icon: 'folder', submenu: moveTargets.map((t) => ({ label: t.name, onSelect: () => moveItems(list, t.path, accountId) })) });
+      if (archive && !inFolder(archive)) move.push({ label: 'Archive', icon: 'archive', onSelect: () => moveItems(list, archive.path, accountId) });
+      if (junk && inFolder(junk)) move.push({ label: 'Not junk', icon: 'inbox', onSelect: () => moveItems(list, inbox?.path ?? 'INBOX', accountId) });
+      else if (junk && !inTrash) move.push({ label: 'Move to Junk', icon: 'alert', onSelect: () => moveItems(list, junk.path, accountId) });
+      if (move.length) entries.push('separator', ...move);
+    }
+
+    entries.push('separator', { label: inTrash ? 'Delete permanently' : 'Delete', icon: 'trash', shortcut: 'Del', danger: true, onSelect: () => removeItems(list) });
+    return entries;
+  };
+
+  /** Right-clicking a selected message acts on the whole selection, like Outlook; otherwise it selects just that one. */
+  const onRowMenu = (m: MailItem, e: MouseEvent) => {
+    e.preventDefault();
+    const inSelection = selected.has(m.key) || (!selected.size && openKey === m.key);
+    const list = inSelection && selected.size ? byKeys([...selected]) : [m];
+    if (!inSelection) {
+      setSelected(new Set([m.key]));
+      setAnchor(m.key);
+    }
+    setRowMenu({ x: e.clientX, y: e.clientY, entries: rowMenuEntries(list) });
+  };
+
   const onLoaded = (full: FullMessage, item: MailItem) => {
     openFull.current = full;
     if (!item.seen) {
@@ -415,7 +487,7 @@ export function MailView({ active, onUnreadChange }: { active: boolean; onUnread
     const onKey = (e: KeyboardEvent) => {
       const s = keyState.current;
       const t = e.target as HTMLElement;
-      if (!s.active || e.ctrlKey || e.metaKey || e.altKey || t.closest('input, textarea, select, [contenteditable="true"], .modal')) return;
+      if (!s.active || e.ctrlKey || e.metaKey || e.altKey || t.closest('input, textarea, select, [contenteditable="true"], .modal, [role="menu"]')) return;
       // Enter on a focused button or link belongs to that control.
       if (e.key === 'Enter' && t.closest('button, a, [role="tab"], [role="treeitem"]')) return;
       const idx = s.items.findIndex((m) => m.key === s.openKey);
@@ -672,6 +744,7 @@ export function MailView({ active, onUnreadChange }: { active: boolean; onUnread
             accountLabel={sel?.kind === 'unified' ? accountLabel : undefined}
             onRowClick={onRowClick}
             onRowOpen={openInTab}
+            onRowMenu={onRowMenu}
             onToggleFlag={(m) => setFlags([m], { flagged: !m.flagged })}
             onLoadMore={() => loadList({ append: true })}
             onDragStart={(m) => (dragged.current = selected.has(m.key) ? byKeys([...selected]) : [m])}
@@ -743,6 +816,7 @@ export function MailView({ active, onUnreadChange }: { active: boolean; onUnread
           </div>
         </section>
       </div>
+      {rowMenu && <ContextMenu x={rowMenu.x} y={rowMenu.y} entries={rowMenu.entries} onClose={closeRowMenu} />}
     </div>
   );
 }

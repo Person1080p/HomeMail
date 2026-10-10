@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 
 /* ---------- toasts ---------- */
@@ -95,6 +96,183 @@ export function Menu({ trigger, children, align = 'left' }: { trigger: (open: ()
     <div className="menu-wrap" ref={ref}>
       {trigger(() => setOpen((o) => !o))}
       {open && <div className={`menu menu-${align}`} role="menu">{children(() => setOpen(false))}</div>}
+    </div>
+  );
+}
+
+/* ---------- context menu ---------- */
+
+export type MenuEntry =
+  | 'separator'
+  | { heading: string }
+  | { label: string; icon?: string; shortcut?: string; danger?: boolean; onSelect?: () => void; submenu?: MenuEntry[] };
+
+/** A right-click menu at a screen position, kept inside the viewport. */
+export function ContextMenu({ x, y, entries, onClose }: { x: number; y: number; entries: MenuEntry[]; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();
+    const onScroll = (e: Event) => !ref.current?.contains(e.target as Node) && onClose();
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onClose);
+    window.addEventListener('blur', onClose);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onClose);
+      window.removeEventListener('blur', onClose);
+    };
+  }, [onClose]);
+  return createPortal(
+    <div ref={ref} onContextMenu={(e) => e.preventDefault()}>
+      <MenuLevel entries={entries} at={{ x, y }} onClose={onClose} autoFocus />
+    </div>,
+    document.body,
+  );
+}
+
+function MenuLevel({
+  entries,
+  at,
+  onClose,
+  onBack,
+  autoFocus,
+}: {
+  entries: MenuEntry[];
+  /** Where to open: a point for the root menu, or the item a submenu hangs off. */
+  at: { x: number; y: number } | { item: HTMLElement };
+  onClose: () => void;
+  onBack?: () => void;
+  autoFocus?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [openSub, setOpenSub] = useState<{ index: number; item: HTMLElement; focus: boolean } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current!;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left: number;
+    let top: number;
+    if ('item' in at) {
+      const r = at.item.getBoundingClientRect();
+      left = r.right + w <= vw - 4 ? r.right : r.left - w;
+      top = r.top - 4;
+    } else {
+      left = at.x + w <= vw - 4 ? at.x : at.x - w;
+      top = at.y + h <= vh - 4 ? at.y : at.y - h;
+    }
+    setPos({ left: Math.max(4, Math.min(left, vw - w - 4)), top: Math.max(4, Math.min(top, vh - h - 4)) });
+    // A submenu opened from the keyboard starts on its first item; one opened by hovering leaves focus alone.
+    if (autoFocus) ('item' in at ? (items()[0] ?? el) : el).focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const items = () => [...(ref.current?.querySelectorAll<HTMLElement>(':scope > .ctx-item') ?? [])];
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const list = items();
+    const i = list.indexOf(document.activeElement as HTMLElement);
+    const sub = i >= 0 ? (list[i].dataset.sub as string | undefined) : undefined;
+    switch (e.key) {
+      case 'ArrowDown':
+        list[(i + 1) % list.length]?.focus();
+        break;
+      case 'ArrowUp':
+        list[(i - 1 + list.length) % list.length]?.focus();
+        break;
+      case 'Home':
+        list[0]?.focus();
+        break;
+      case 'End':
+        list[list.length - 1]?.focus();
+        break;
+      case 'ArrowRight':
+        if (sub) setOpenSub({ index: Number(sub), item: list[i], focus: true });
+        break;
+      case 'ArrowLeft':
+        if (!onBack) return;
+        onBack();
+        break;
+      case 'Escape':
+        (onBack ?? onClose)();
+        break;
+      case 'Tab':
+        onClose();
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  return (
+    <div
+      ref={ref}
+      className="menu ctx-menu"
+      role="menu"
+      tabIndex={-1}
+      // Measured before it's placed; opacity rather than visibility so it can take focus meanwhile.
+      style={pos ?? { left: 0, top: 0, opacity: 0 }}
+      onKeyDown={onKeyDown}
+    >
+      {entries.map((entry, index) => {
+        if (entry === 'separator') return <div key={index} className="ctx-sep" role="separator" />;
+        if ('heading' in entry)
+          return (
+            <div key={index} className="ctx-heading">
+              {entry.heading}
+            </div>
+          );
+        const hasSub = !!entry.submenu?.length;
+        return (
+          <button
+            key={index}
+            className={`ctx-item ${entry.danger ? 'danger' : ''} ${openSub?.index === index ? 'sub-open' : ''}`}
+            role="menuitem"
+            tabIndex={-1}
+            aria-haspopup={hasSub || undefined}
+            aria-expanded={hasSub ? openSub?.index === index : undefined}
+            data-sub={hasSub ? index : undefined}
+            onMouseEnter={(e) => {
+              const item = e.currentTarget;
+              item.focus();
+              if (hasSub) setOpenSub({ index, item, focus: false });
+              else setOpenSub(null);
+            }}
+            onClick={(e) => {
+              if (hasSub) {
+                setOpenSub({ index, item: e.currentTarget, focus: true });
+                return;
+              }
+              onClose();
+              entry.onSelect?.();
+            }}
+          >
+            {entry.icon ? <Icon name={entry.icon} size={15} /> : <span className="ctx-icon-space" />}
+            <span className="ctx-label">{entry.label}</span>
+            {entry.shortcut && <kbd className="ctx-shortcut">{entry.shortcut}</kbd>}
+            {hasSub && <Icon name="chevronRight" size={13} className="ctx-arrow" />}
+          </button>
+        );
+      })}
+      {openSub && (
+        <MenuLevel
+          key={openSub.index}
+          entries={(entries[openSub.index] as { submenu: MenuEntry[] }).submenu}
+          at={{ item: openSub.item }}
+          autoFocus={openSub.focus}
+          onClose={onClose}
+          onBack={() => {
+            openSub.item.focus();
+            setOpenSub(null);
+          }}
+        />
+      )}
     </div>
   );
 }
