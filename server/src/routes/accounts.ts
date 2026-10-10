@@ -94,10 +94,12 @@ function draftRow(userId: number, input: AccountInput, secret: AccountSecret): A
     last_error: null,
     last_sync: null,
     created_at: Date.now(),
+    managed: null,
   };
 }
 
 async function testAccount(account: AccountRow): Promise<{ incoming: string | null; smtp: string | null }> {
+  if (account.protocol === 'local') return { incoming: null, smtp: null };
   const incoming = (async () => {
     if (account.protocol === 'imap') await testImap(account);
     else await (await connectPop3(account)).quit();
@@ -160,6 +162,12 @@ accountsRouter.post('/accounts', requireUser, async (req, res) => {
 accountsRouter.put('/accounts/:id', requireUser, async (req, res) => {
   const id = Number(req.params.id);
   const existing = getAccount(req.user!.id, id);
+  if (existing.managed) {
+    // The server's own mailbox: only cosmetic fields are the user's to change.
+    const body = parse(z.object({ label: z.string().trim().max(100).optional(), displayName: z.string().trim().max(200).default(''), signature: z.string().max(20000).default('') }), req.body);
+    const updated = updateAccount(req.user!.id, id, { label: body.label || existing.email, display_name: body.displayName, signature: body.signature });
+    return res.json(publicAccount(updated));
+  }
   const body = parse(accountBody, req.body);
   checkProvider(body.provider);
   const input = toInput(body, existing.auth_type, existing.oauth_provider);
@@ -191,6 +199,7 @@ accountsRouter.post('/accounts/:id/test', requireUser, async (req, res) => {
 
 accountsRouter.delete('/accounts/:id', requireUser, (req, res) => {
   const id = Number(req.params.id);
+  if (getAccount(req.user!.id, id).managed) throw badRequest('This is your mailbox on this server and cannot be removed');
   closeImap(id);
   deleteAccount(req.user!.id, id);
   res.json({ ok: true });

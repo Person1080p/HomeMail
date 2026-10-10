@@ -13,7 +13,7 @@ export interface AccountRow {
   provider: string;
   email: string;
   display_name: string;
-  protocol: 'imap' | 'pop3';
+  protocol: 'imap' | 'pop3' | 'local';
   in_host: string;
   in_port: number;
   in_security: Security;
@@ -33,6 +33,7 @@ export interface AccountRow {
   last_error: string | null;
   last_sync: number | null;
   created_at: number;
+  managed: 'builtin' | 'stalwart' | null;
 }
 
 export interface AccountSecret {
@@ -44,7 +45,7 @@ export interface AccountSecret {
   expiresAt?: number;
 }
 
-export type AccountInput = Omit<AccountRow, 'id' | 'user_id' | 'secret' | 'last_error' | 'last_sync' | 'created_at' | 'sort_order'>;
+export type AccountInput = Omit<AccountRow, 'id' | 'user_id' | 'secret' | 'last_error' | 'last_sync' | 'created_at' | 'sort_order' | 'managed'>;
 
 const COLUMNS: (keyof AccountInput)[] = [
   'label', 'provider', 'email', 'display_name', 'protocol',
@@ -68,12 +69,15 @@ export function getAccountById(id: number): AccountRow | undefined {
   return db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) as AccountRow | undefined;
 }
 
-export function createAccount(userId: number, input: AccountInput, secret: AccountSecret): AccountRow {
-  const order = (db.prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM accounts WHERE user_id = ?').get(userId) as { n: number }).n;
-  const cols = [...COLUMNS, 'user_id', 'secret', 'sort_order', 'created_at'];
+export function createAccount(userId: number, input: AccountInput, secret: AccountSecret, managed: AccountRow['managed'] = null): AccountRow {
+  // Server-managed mailboxes go first in the list.
+  const order = managed
+    ? 0
+    : (db.prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM accounts WHERE user_id = ?').get(userId) as { n: number }).n;
+  const cols = [...COLUMNS, 'user_id', 'secret', 'sort_order', 'created_at', 'managed'];
   const info = db
     .prepare(`INSERT INTO accounts (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
-    .run(...COLUMNS.map((c) => input[c]), userId, encrypt(secret), order, now());
+    .run(...COLUMNS.map((c) => input[c]), userId, encrypt(secret), order, now(), managed);
   return getAccount(userId, Number(info.lastInsertRowid));
 }
 
@@ -135,5 +139,6 @@ export function publicAccount(a: AccountRow) {
     sortOrder: a.sort_order,
     lastError: a.last_error,
     lastSync: a.last_sync,
+    managed: a.managed,
   };
 }

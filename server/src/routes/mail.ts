@@ -165,6 +165,8 @@ const composeSchema = z.object({
   subject: z.string().max(2000).default(''),
   text: z.string().max(5_000_000).default(''),
   html: z.string().max(10_000_000).optional(),
+  priority: z.enum(['high', 'normal', 'low']).optional(),
+  readReceipt: z.boolean().optional(),
   inReplyTo: z.string().max(2000).optional(),
   references: z.array(z.string().max(2000)).max(200).optional(),
   forwardOf: ref.extend({ attachments: z.array(z.number().int().min(0)).max(500).optional() }).optional(),

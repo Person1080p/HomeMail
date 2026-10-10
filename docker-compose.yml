@@ -1,3 +1,9 @@
+# HomeMail with its bundled services:
+#   homemail   the web app (port 3000)
+#   stalwart   mail server: every user gets an IMAP mailbox user@MAIL_DOMAIN
+#   prosody    XMPP server that lets people on other servers chat with user@CHAT_DOMAIN
+# Copy .env.example to .env first; it needs APP_SECRET, STALWART_ADMIN_PASSWORD and XMPP_COMPONENT_SECRET.
+
 services:
   homemail:
     build: .
@@ -6,9 +12,56 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MAIL_SERVER_MODE: ${MAIL_SERVER_MODE:-stalwart}
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-${SERVER_DOMAIN:-home.internal}}
+      STALWART_URL: http://stalwart:8080
+      STALWART_ADMIN: admin:${STALWART_ADMIN_PASSWORD:?set STALWART_ADMIN_PASSWORD in .env}
+      STALWART_IMAP_HOST: stalwart
+      XMPP_COMPONENT_SERVICE: xmpp://prosody:5347
+      XMPP_COMPONENT_SECRET: ${XMPP_COMPONENT_SECRET:?set XMPP_COMPONENT_SECRET in .env}
+      CHAT_FEDERATION: ${CHAT_FEDERATION:-true}
     volumes:
       - homemail-data:/data
+    depends_on:
+      - stalwart
+      - prosody
+
+  stalwart:
+    image: stalwartlabs/stalwart:v0.16.23
+    container_name: homemail-stalwart
+    restart: unless-stopped
+    environment:
+      # HomeMail manages Stalwart with this login (also usable for Stalwart's own admin page).
+      STALWART_RECOVERY_ADMIN: admin:${STALWART_ADMIN_PASSWORD:?set STALWART_ADMIN_PASSWORD in .env}
+    ports:
+      - "25:25"     # incoming mail from other servers
+      - "465:465"   # SMTP submission (TLS) for Thunderbird, phones, ...
+      - "993:993"   # IMAP (TLS)
+      # Stalwart's admin page; keep it private. Open http://<host>:8080/admin and sign in as admin.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - stalwart-data:/var/lib/stalwart
+      # A pre-written config makes Stalwart skip its interactive first-run wizard;
+      # HomeMail sets up the domain, host name and mailboxes through the API.
+      - ./deploy/stalwart/config.json:/etc/stalwart/config.json:ro
+
+  prosody:
+    image: prosodyim/prosody:13.0
+    container_name: homemail-prosody
+    restart: unless-stopped
+    environment:
+      HOMEMAIL_CHAT_DOMAIN: ${CHAT_DOMAIN:-${SERVER_DOMAIN:-home.mail}}
+      HOMEMAIL_COMPONENT_SECRET: ${XMPP_COMPONENT_SECRET:?set XMPP_COMPONENT_SECRET in .env}
+    ports:
+      - "5269:5269" # server-to-server XMPP (federation)
+    volumes:
+      - ./deploy/prosody/prosody.cfg.lua:/etc/prosody/prosody.cfg.lua:ro
+      - ./deploy/prosody/certs:/etc/prosody/certs:ro
+      - prosody-data:/var/lib/prosody
 
   # Optional: Proton Mail Bridge, needed for Proton Mail accounts (paid Proton plan).
   # This is a community-maintained image; review it and pin a version before use.
@@ -29,4 +82,6 @@ services:
 
 volumes:
   homemail-data:
+  stalwart-data:
+  prosody-data:
   # protonmail-bridge:

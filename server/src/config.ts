@@ -66,6 +66,37 @@ export const config = {
   /** Look up unknown domains in Mozilla's ISPDB / autoconfig, like Thunderbird does. */
   autodetectOnline: env.AUTODETECT_ONLINE !== 'false',
   webDir: path.resolve(env.WEB_DIR || path.join(here, '../../web/dist')),
+
+  /** Domain for chat addresses (username@domain); also the default mail domain. */
+  serverDomain: (env.SERVER_DOMAIN || 'home.mail').toLowerCase(),
+  chatDomain: env.CHAT_DOMAIN?.toLowerCase(),
+  mailDomain: env.MAIL_DOMAIN?.toLowerCase(),
+  /** builtin | stalwart | external | off. Docker Compose sets "stalwart". */
+  mailServerMode: env.MAIL_SERVER_MODE,
+  /** Public name of the mail host (SMTP greeting, MX target). Defaults to mail.<mail domain>. */
+  mailHostname: env.MAIL_HOSTNAME?.toLowerCase(),
+  builtinSmtp: {
+    port: Number(env.BUILTIN_SMTP_PORT || 2525),
+    host: env.BUILTIN_SMTP_HOST || '0.0.0.0',
+    tlsCert: env.BUILTIN_SMTP_TLS_CERT,
+    tlsKey: env.BUILTIN_SMTP_TLS_KEY,
+    maxMessageMb: Number(env.BUILTIN_SMTP_MAX_MB || 30),
+  },
+  stalwart: env.STALWART_URL
+    ? {
+        url: env.STALWART_URL.replace(/\/+$/, ''),
+        /** Must match STALWART_RECOVERY_ADMIN given to the Stalwart container. */
+        admin: env.STALWART_ADMIN || '',
+        imapHost: env.STALWART_IMAP_HOST || new URL(env.STALWART_URL).hostname,
+        imapPort: Number(env.STALWART_IMAP_PORT || 993),
+        smtpPort: Number(env.STALWART_SMTP_PORT || 465),
+      }
+    : null,
+  xmpp: env.XMPP_COMPONENT_SERVICE
+    ? { service: env.XMPP_COMPONENT_SERVICE, secret: env.XMPP_COMPONENT_SECRET || '' }
+    : null,
+  /** Default for chat federation over XMPP; admins can change it at runtime. */
+  chatFederation: env.CHAT_FEDERATION === 'true',
 };
 
 fs.mkdirSync(config.mailDir, { recursive: true });

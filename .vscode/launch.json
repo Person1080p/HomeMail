@@ -1,0 +1,57 @@
+{
+  // F5 / "Run and Debug" panel. "Full stack" is the one to use day to day.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Server (debug)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/server",
+      "runtimeExecutable": "node",
+      // Loads .env if present (OAuth client IDs etc.); the env block below wins over it.
+      "runtimeArgs": ["--env-file-if-exists=${workspaceFolder}/.env", "--import", "tsx"],
+      "program": "${workspaceFolder}/server/src/index.ts",
+      "env": {
+        "PATH": "${env:HOME}/.local/bin:${env:PATH}",
+        "DATA_DIR": "${workspaceFolder}/data",
+        "PORT": "3000",
+        "PUBLIC_URL": "http://localhost:5173"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"]
+    },
+    {
+      "name": "Web (Chrome, Vite dev server)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/web",
+      "preLaunchTask": "web: dev (vite)"
+    },
+    {
+      "name": "Production build (server/dist)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--env-file-if-exists=${workspaceFolder}/.env"],
+      "program": "${workspaceFolder}/server/dist/index.js",
+      "env": {
+        "PATH": "${env:HOME}/.local/bin:${env:PATH}",
+        "DATA_DIR": "${workspaceFolder}/data",
+        "PORT": "3000",
+        "PUBLIC_URL": "http://localhost:3000"
+      },
+      "preLaunchTask": "build",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full stack (server + web)",
+      "configurations": ["Server (debug)", "Web (Chrome, Vite dev server)"],
+      "stopAll": true
+    }
+  ]
+}

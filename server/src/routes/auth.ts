@@ -17,6 +17,7 @@ import { HttpError, badRequest, notFound, parse } from '../http.js';
 import { oauthAvailable } from '../oauth.js';
 import { deleteAccount } from '../accounts.js';
 import { closeImap } from '../mail/imap.js';
+import { ensureMailboxForUserId, removeMailbox } from '../mailserver/provision.js';
 
 export const authRouter = Router();
 
@@ -25,7 +26,8 @@ const username = z
   .trim()
   .min(2)
   .max(64)
-  .regex(/^[a-zA-Z0-9._@-]+$/, 'only letters, digits and . _ @ - are allowed');
+  .regex(/^[a-zA-Z0-9._-]+$/, 'only letters, digits and . _ - are allowed')
+  .refine((u) => !/^[._-]|[._-]$/.test(u), 'must start and end with a letter or digit');
 const password = z.string().min(10, 'must be at least 10 characters').max(512);
 
 const userCount = () => (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
@@ -46,7 +48,9 @@ async function insertUser(input: { username: string; password: string; displayNa
   const info = db
     .prepare('INSERT INTO users (username, display_name, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(input.username, input.displayName || input.username, await hashPassword(input.password), input.isAdmin ? 1 : 0, now());
-  return Number(info.lastInsertRowid);
+  const id = Number(info.lastInsertRowid);
+  await ensureMailboxForUserId(id);
+  return id;
 }
 
 authRouter.post('/auth/register', async (req, res) => {
@@ -140,12 +144,13 @@ authRouter.patch('/admin/users/:id', requireUser, requireAdmin, async (req, res)
   res.json({ ok: true });
 });
 
-authRouter.delete('/admin/users/:id', requireUser, requireAdmin, (req, res) => {
+authRouter.delete('/admin/users/:id', requireUser, requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
   if (id === req.user!.id) throw badRequest('You cannot delete yourself');
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined;
   if (!target) throw notFound('User not found');
   if (target.is_admin && adminCount() <= 1) throw badRequest('There must be at least one active admin');
+  await removeMailbox(target.username);
   const accountIds = db.prepare('SELECT id FROM accounts WHERE user_id = ?').pluck().all(id) as number[];
   for (const accountId of accountIds) {
     closeImap(accountId);

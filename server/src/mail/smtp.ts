@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer';
 import addressparser from 'nodemailer/lib/addressparser';
@@ -7,6 +8,8 @@ import { presetById } from '../providers.js';
 import { badRequest } from '../http.js';
 import { attachmentName, sanitizeEmailHtml, parseRaw } from './parse.js';
 import { backendFor } from './service.js';
+import { withTimeout } from '../util.js';
+import { submitFromBuiltin } from '../mailserver/builtin.js';
 import type { Addr } from './types.js';
 
 export async function createTransport(account: AccountRow) {
@@ -30,9 +33,10 @@ export async function createTransport(account: AccountRow) {
 }
 
 export async function testSmtp(account: AccountRow): Promise<void> {
+  if (account.protocol === 'local') return;
   const t = await createTransport(account);
   try {
-    await t.verify();
+    await withTimeout(t.verify(), 60_000, 'SMTP connection test');
   } finally {
     t.close();
   }
@@ -55,6 +59,9 @@ export interface ComposeInput {
   subject: string;
   text: string;
   html?: string;
+  priority?: 'high' | 'normal' | 'low';
+  /** Ask the recipient's program to confirm reading (Disposition-Notification-To). */
+  readReceipt?: boolean;
   inReplyTo?: string;
   references?: string[];
   /** Message whose attachments (by index) are carried over: forwarding or re-saving a draft. */
@@ -66,13 +73,33 @@ export interface ComposeInput {
   attachments: { filename: string; contentType: string; content: Buffer }[];
 }
 
+/** Importance as Outlook, Thunderbird and Gmail understand it. MailComposer doesn't set these itself. */
+const PRIORITY_HEADERS = {
+  high: { 'X-Priority': '1 (Highest)', 'X-MSMail-Priority': 'High', Importance: 'High' },
+  low: { 'X-Priority': '5 (Lowest)', 'X-MSMail-Priority': 'Low', Importance: 'Low' },
+};
+
+/**
+ * Pictures pasted into the editor arrive as data: URLs, which many mail programs
+ * (Gmail, Outlook) refuse to show. Send them as related attachments referenced by cid: instead.
+ */
+function inlineImagesAsAttachments(html: string, attachments: { filename: string; contentType: string; content: Buffer; cid?: string }[]): string {
+  let n = 0;
+  return html.replace(/(<img\b[^>]*?\bsrc=")data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)"/gi, (_m, pre: string, type: string, b64: string) => {
+    const cid = `img${++n}.${crypto.randomBytes(8).toString('hex')}@homemail`;
+    const ext = type.split('/')[1].replace('jpeg', 'jpg').replace(/\+.*$/, '');
+    attachments.push({ filename: `image${n}.${ext}`, contentType: type, content: Buffer.from(b64, 'base64'), cid });
+    return `${pre}cid:${cid}"`;
+  });
+}
+
 async function buildRaw(account: AccountRow, input: ComposeInput, forDraft: boolean) {
   const to = parseAddresses(input.to);
   const cc = parseAddresses(input.cc);
   const bcc = parseAddresses(input.bcc);
   if (!forDraft && !to.length && !cc.length && !bcc.length) throw badRequest('Add at least one recipient');
 
-  const attachments: { filename: string; contentType: string; content: Buffer }[] = [...input.attachments];
+  const attachments: { filename: string; contentType: string; content: Buffer; cid?: string }[] = [...input.attachments];
   if (input.forwardOf) {
     const src = await backendFor(account).getSource(input.forwardOf.folder, input.forwardOf.id);
     const orig = await parseRaw(src);
@@ -83,6 +110,7 @@ async function buildRaw(account: AccountRow, input: ComposeInput, forDraft: bool
     });
   }
 
+  const html = input.html ? inlineImagesAsAttachments(sanitizeEmailHtml(input.html), attachments) : undefined;
   const composer = new MailComposer({
     from: { name: account.display_name || '', address: account.email },
     to,
@@ -90,11 +118,15 @@ async function buildRaw(account: AccountRow, input: ComposeInput, forDraft: bool
     bcc,
     subject: input.subject,
     text: input.text,
-    html: input.html ? sanitizeEmailHtml(input.html) : undefined,
+    html,
     inReplyTo: input.inReplyTo,
     references: input.references,
     attachments,
-    headers: { 'User-Agent': 'HomeMail' },
+    headers: {
+      'User-Agent': 'HomeMail',
+      ...(input.readReceipt ? { 'Disposition-Notification-To': account.email } : {}),
+      ...(input.priority && input.priority !== 'normal' ? PRIORITY_HEADERS[input.priority] : {}),
+    },
   });
   const node = composer.compile();
   // Keep Bcc in drafts so it survives re-opening; the sent copy omits it.
@@ -105,11 +137,15 @@ async function buildRaw(account: AccountRow, input: ComposeInput, forDraft: bool
 
 export async function sendMessage(account: AccountRow, input: ComposeInput): Promise<void> {
   const { raw, recipients } = await buildRaw(account, input, false);
-  const transport = await createTransport(account);
-  try {
-    await transport.sendMail({ envelope: { from: account.email, to: recipients }, raw });
-  } finally {
-    transport.close();
+  if (account.protocol === 'local') {
+    await submitFromBuiltin(account, raw, recipients);
+  } else {
+    const transport = await createTransport(account);
+    try {
+      await withTimeout(transport.sendMail({ envelope: { from: account.email, to: recipients }, raw }), 180_000, 'Sending');
+    } finally {
+      transport.close();
+    }
   }
 
   // Sending succeeded; the follow-up steps below are best effort.

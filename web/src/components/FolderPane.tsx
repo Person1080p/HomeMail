@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Account, Folder, MailRef } from '../types';
+import type { Account, Folder, MailSelection } from '../types';
 import { Icon } from './Icon';
 import { Menu, useLocalStorage } from './ui';
 
@@ -58,22 +58,40 @@ export function FolderPane({
   accounts,
   state,
   selected,
+  unifiedUnread,
   onSelect,
   actions,
   onRetry,
 }: {
   accounts: Account[];
   state: Record<number, FolderState>;
-  selected: MailRef | null;
-  onSelect: (ref: MailRef) => void;
+  selected: MailSelection | null;
+  unifiedUnread: number;
+  onSelect: (sel: MailSelection) => void;
   actions: FolderActions;
   onRetry: (accountId: number) => void;
 }) {
   const [collapsed, setCollapsed] = useLocalStorage<Record<string, boolean>>('homemail.collapsed', {});
   const toggle = (key: string) => setCollapsed({ ...collapsed, [key]: !collapsed[key] });
+  const unifiedSelected = selected?.kind === 'unified';
 
   return (
     <nav className="folder-pane" aria-label="Folders">
+      {accounts.length > 1 && (
+        <div
+          className={`folder-row unified-row ${unifiedSelected ? 'selected' : ''}`}
+          role="treeitem"
+          aria-selected={unifiedSelected}
+          tabIndex={0}
+          onClick={() => onSelect({ kind: 'unified' })}
+          onKeyDown={(e) => e.key === 'Enter' && onSelect({ kind: 'unified' })}
+        >
+          <span className="folder-twisty" />
+          <Icon name="inbox" size={15} />
+          <span className={`ellipsis ${unifiedUnread > 0 ? 'bold' : ''}`}>All Inboxes</span>
+          {unifiedUnread > 0 && <span className="badge">{unifiedUnread}</span>}
+        </div>
+      )}
       {accounts.map((acc) => {
         const st = state[acc.id];
         const key = `a${acc.id}`;
@@ -129,8 +147,8 @@ function FolderTree({
 }: {
   nodes: Node[];
   account: Account;
-  selected: MailRef | null;
-  onSelect: (ref: MailRef) => void;
+  selected: MailSelection | null;
+  onSelect: (sel: MailSelection) => void;
   actions: FolderActions;
   collapsed: Record<string, boolean>;
   toggle: (k: string) => void;
@@ -142,7 +160,7 @@ function FolderTree({
       {nodes.map((n) => {
         const f = n.folder;
         const key = `a${account.id}:${n.path}`;
-        const isSel = selected?.accountId === account.id && selected.folder === n.path;
+        const isSel = selected?.kind === 'folder' && selected.accountId === account.id && selected.folder === n.path;
         const canSelect = f?.selectable ?? false;
         const icon = (f?.specialUse && ICON_FOR[f.specialUse]) || 'folder';
         const canEmpty = f?.specialUse === '\\Trash' || f?.specialUse === '\\Junk';
@@ -152,7 +170,7 @@ function FolderTree({
             <div
               className={`folder-row ${isSel ? 'selected' : ''} ${dragOver === n.path ? 'drag-over' : ''} ${canSelect ? '' : 'disabled'}`}
               style={{ paddingLeft: 10 + depth * 14 }}
-              onClick={() => canSelect && onSelect({ accountId: account.id, folder: n.path })}
+              onClick={() => canSelect && onSelect({ kind: 'folder', accountId: account.id, folder: n.path })}
               onDragOver={(e) => {
                 if (!canSelect || !e.dataTransfer.types.includes('application/x-homemail')) return;
                 e.preventDefault();

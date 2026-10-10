@@ -26,7 +26,7 @@ export interface Account {
   provider: string;
   email: string;
   displayName: string;
-  protocol: 'imap' | 'pop3';
+  protocol: 'imap' | 'pop3' | 'local';
   incoming: ServerSettings & { username: string };
   smtp: ServerSettings & { username: string };
   authType: 'password' | 'oauth2';
@@ -41,6 +41,8 @@ export interface Account {
   sortOrder: number;
   lastError: string | null;
   lastSync: number | null;
+  /** Set when this is the user's own mailbox on this server. */
+  managed: 'builtin' | 'stalwart' | null;
 }
 
 export interface Provider {
@@ -136,4 +138,75 @@ export interface FullMessage {
 export interface MailRef {
   accountId: number;
   folder: string;
+}
+
+/** A message in a list, which may mix several accounts (All Inboxes). */
+export interface MailItem extends MessageSummary {
+  accountId: number;
+  folder: string;
+  key: string;
+}
+
+export interface MessageRef {
+  accountId: number;
+  folder: string;
+  id: number;
+}
+
+/** What the folder pane has selected. */
+export type MailSelection = { kind: 'folder'; accountId: number; folder: string } | { kind: 'unified' };
+
+/* ---------- chat ---------- */
+
+export interface ChatMember {
+  userId: number | null;
+  jid: string | null;
+  username: string | null;
+  displayName: string;
+  address: string;
+  online: boolean;
+  role: 'owner' | 'member';
+  lastReadId: number;
+}
+
+export interface ChatMessage {
+  id: number;
+  conversationId: number;
+  senderUserId: number | null;
+  senderJid: string | null;
+  kind: 'text' | 'system';
+  body: string;
+  createdAt: number;
+  deleted: boolean;
+}
+
+export interface Conversation {
+  id: number;
+  kind: 'dm' | 'group';
+  title: string;
+  name: string;
+  members: ChatMember[];
+  lastMessage: ChatMessage | null;
+  lastMessageAt: number;
+  unread: number;
+  remote: boolean;
+}
+
+export interface DirectoryUser {
+  userId: number;
+  username: string;
+  displayName: string;
+  address: string;
+  online: boolean;
+}
+
+export interface MyAddresses {
+  chat: { address: string; federation: boolean };
+  mailbox: {
+    mode: 'builtin' | 'stalwart' | 'external' | 'off';
+    address: string | null;
+    accountId: number | null;
+    error: string | null;
+    clients: { imap: ServerSettings; smtp: ServerSettings; username: string } | null;
+  };
 }

@@ -11,7 +11,9 @@ export interface MessageViewActions {
   remove: () => void;
   markUnread: () => void;
   moveTo: (dest: string) => void;
-  back: () => void;
+  /** Present in the reading pane; absent when already shown in its own tab. */
+  openInTab?: () => void;
+  back?: () => void;
 }
 
 /**
@@ -98,9 +100,11 @@ export function MessageView({
     return (
       <div className="reader-empty">
         <p className="error-text">{error}</p>
-        <button className="btn" onClick={actions.back}>
-          Back
-        </button>
+        {actions.back && (
+          <button className="btn" onClick={actions.back}>
+            Back
+          </button>
+        )}
       </div>
     );
   if (!msg) return <Spinner label="Loading message…" />;
@@ -113,9 +117,11 @@ export function MessageView({
   return (
     <article className="reader">
       <div className="reader-toolbar">
-        <button className="icon-btn only-mobile" onClick={actions.back} aria-label="Back to list">
-          <Icon name="chevronLeft" size={18} />
-        </button>
+        {actions.back && (
+          <button className="icon-btn only-mobile" onClick={actions.back} aria-label="Back to list">
+            <Icon name="chevronLeft" size={18} />
+          </button>
+        )}
         {isDrafts ? (
           <button className="btn btn-primary" onClick={() => actions.editDraft(msg)}>
             <Icon name="pencil" /> Edit draft
@@ -134,6 +140,11 @@ export function MessageView({
           </>
         )}
         <span className="spacer" />
+        {actions.openInTab && (
+          <button className="icon-btn hide-mobile" onClick={actions.openInTab} title="Open in a new tab (Enter)" aria-label="Open in a new tab">
+            <Icon name="external" />
+          </button>
+        )}
         {moveTargets.length > 0 && (
           <Menu
             align="right"

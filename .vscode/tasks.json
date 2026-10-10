@@ -1,0 +1,106 @@
+{
+  // Terminal → Run Task… ("build" is also Ctrl+Shift+B).
+  "version": "2.0.0",
+  "options": {
+    // Node 24 lives in ~/.local/bin on this machine.
+    "env": { "PATH": "${env:HOME}/.local/bin:${env:PATH}" }
+  },
+  "tasks": [
+    {
+      "label": "dev: server + web",
+      "detail": "API with auto-reload on :3000 and the Vite UI on :5173 — open http://localhost:5173",
+      "dependsOn": ["server: dev (watch)", "web: dev (vite)"],
+      "problemMatcher": []
+    },
+    {
+      "label": "server: dev (watch)",
+      "type": "shell",
+      "command": "npm run dev -w server",
+      "options": {
+        "env": {
+          "PATH": "${env:HOME}/.local/bin:${env:PATH}",
+          "DATA_DIR": "${workspaceFolder}/data",
+          "PUBLIC_URL": "http://localhost:5173"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "homemail-server",
+        "pattern": { "regexp": "^__never_matches__$" },
+        "background": { "activeBegins": true, "beginsPattern": "^", "endsPattern": "HomeMail listening on" }
+      },
+      "presentation": { "group": "dev", "panel": "dedicated" }
+    },
+    {
+      "label": "web: dev (vite)",
+      "type": "shell",
+      "command": "npm run dev -w web",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "homemail-web",
+        "pattern": { "regexp": "^__never_matches__$" },
+        "background": { "activeBegins": true, "beginsPattern": "^", "endsPattern": "(Local:|ready in)" }
+      },
+      "presentation": { "group": "dev", "panel": "dedicated" }
+    },
+    {
+      "label": "build",
+      "detail": "Build web/dist and server/dist",
+      "type": "shell",
+      "command": "npm run build",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "start (production build)",
+      "detail": "Serve the built app on http://localhost:3000",
+      "type": "shell",
+      "command": "node --env-file-if-exists=.env server/dist/index.js",
+      "options": {
+        "env": { "PATH": "${env:HOME}/.local/bin:${env:PATH}", "DATA_DIR": "${workspaceFolder}/data" }
+      },
+      "dependsOn": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "typecheck",
+      "type": "shell",
+      "command": "npm run typecheck",
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "test: e2e (Docker)",
+      "detail": "Runs all end-to-end suites against throwaway GreenMail, Stalwart and Prosody containers (needs Docker)",
+      "type": "shell",
+      "command": "./scripts/e2e.sh",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "npm install",
+      "type": "shell",
+      "command": "npm install",
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: compose up",
+      "detail": "Build and start the production container (needs .env)",
+      "type": "shell",
+      "command": "docker compose up -d --build && docker compose ps",
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: compose logs",
+      "type": "shell",
+      "command": "docker compose logs -f --tail=100 homemail",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "docker: compose down",
+      "type": "shell",
+      "command": "docker compose down",
+      "problemMatcher": []
+    }
+  ]
+}

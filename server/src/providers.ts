@@ -1,6 +1,7 @@
 import dns from 'node:dns/promises';
 import { XMLParser } from 'fast-xml-parser';
 import { config } from './config.js';
+import { externalServer, mailDomain, mailMode } from './server-settings.js';
 
 export type Security = 'tls' | 'starttls' | 'none';
 export interface ServerSettings {
@@ -208,7 +209,7 @@ const MX_HINTS: [RegExp, string][] = [
 
 export interface DetectResult {
   presetId: string;
-  source: 'known-domain' | 'mx' | 'ispdb' | 'guess';
+  source: 'known-domain' | 'mx' | 'ispdb' | 'guess' | 'server';
   protocol: 'imap' | 'pop3';
   incoming?: ServerSettings;
   smtp?: ServerSettings;
@@ -271,6 +272,11 @@ async function lookupIspdb(domain: string, email: string): Promise<DetectResult 
 
 export async function autodetect(email: string): Promise<DetectResult> {
   const domain = email.split('@')[1]?.toLowerCase().trim() || '';
+  // The admin's own mail server (Settings → Server → "external server").
+  const ext = mailMode() === 'external' ? externalServer() : null;
+  if (ext && domain === mailDomain()) {
+    return { presetId: 'imap', source: 'server', protocol: 'imap', incoming: ext.imap, smtp: ext.smtp, username: email };
+  }
   const known = presetForDomain(domain);
   if (known) return fromPreset(known, email, 'known-domain');
 

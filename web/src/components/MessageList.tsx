@@ -1,61 +1,68 @@
 import { useEffect, useRef, type MouseEvent } from 'react';
-import type { MessageSummary } from '../types';
+import type { MailItem } from '../types';
 import { Icon } from './Icon';
 import { addrShort, formatDate } from './ui';
 
 export function MessageList({
-  messages,
-  total,
+  items,
+  hasMore,
   loading,
   error,
   selected,
-  openId,
+  openKey,
   showRecipient,
+  accountLabel,
   onRowClick,
+  onRowOpen,
   onToggleFlag,
   onLoadMore,
   onDragStart,
   emptyText,
 }: {
-  messages: MessageSummary[];
-  total: number;
+  items: MailItem[];
+  hasMore: boolean;
   loading: boolean;
   error: string | null;
-  selected: Set<number>;
-  openId: number | null;
+  selected: Set<string>;
+  openKey: string | null;
   showRecipient: boolean;
-  onRowClick: (m: MessageSummary, e: MouseEvent) => void;
-  onToggleFlag: (m: MessageSummary) => void;
+  /** Set in mixed-account views to label each row with its account. */
+  accountLabel?: (accountId: number) => string;
+  onRowClick: (m: MailItem, e: MouseEvent) => void;
+  onRowOpen: (m: MailItem) => void;
+  onToggleFlag: (m: MailItem) => void;
   onLoadMore: () => void;
-  onDragStart: (m: MessageSummary) => void;
+  onDragStart: (m: MailItem) => void;
   emptyText: string;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
   // Keep the keyboard-selected message in view.
   useEffect(() => {
-    if (openId == null) return;
-    listRef.current?.querySelector(`[data-id="${openId}"]`)?.scrollIntoView({ block: 'nearest' });
-  }, [openId]);
+    if (!openKey) return;
+    const el = [...(listRef.current?.querySelectorAll<HTMLElement>('[data-key]') ?? [])].find((n) => n.dataset.key === openKey);
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [openKey]);
 
   return (
     <div className="message-list" ref={listRef} role="listbox" aria-multiselectable="true" aria-label="Messages">
       {error && <div className="list-empty error-text">{error}</div>}
-      {!error && !loading && messages.length === 0 && <div className="list-empty muted">{emptyText}</div>}
-      {messages.map((m) => {
+      {!error && !loading && items.length === 0 && <div className="list-empty muted">{emptyText}</div>}
+      {items.map((m) => {
         const who = showRecipient ? m.to.map((a) => addrShort(a)).join(', ') || '(no recipient)' : addrShort(m.from) || '(unknown sender)';
-        const isSel = selected.has(m.id);
+        const isSel = selected.has(m.key);
         return (
           <div
-            key={m.id}
-            data-id={m.id}
+            key={m.key}
+            data-key={m.key}
             role="option"
             aria-selected={isSel}
-            className={`msg-row ${m.seen ? '' : 'unread'} ${isSel ? 'selected' : ''} ${openId === m.id ? 'open' : ''}`}
+            className={`msg-row ${m.seen ? '' : 'unread'} ${isSel ? 'selected' : ''} ${openKey === m.key ? 'open' : ''}`}
             onClick={(e) => onRowClick(m, e)}
+            onDoubleClick={() => onRowOpen(m)}
             draggable
             onDragStart={(e) => {
-              e.dataTransfer.setData('application/x-homemail', String(m.id));
+              e.dataTransfer.setData('application/x-homemail', m.key);
               e.dataTransfer.effectAllowed = 'move';
               onDragStart(m);
             }}
@@ -66,6 +73,7 @@ export function MessageList({
                 e.stopPropagation();
                 onToggleFlag(m);
               }}
+              onDoubleClick={(e) => e.stopPropagation()}
               aria-label={m.flagged ? 'Unstar' : 'Star'}
               title={m.flagged ? 'Unstar' : 'Star'}
             >
@@ -80,6 +88,7 @@ export function MessageList({
                 <span className="msg-date">{formatDate(m.date)}</span>
               </div>
               <div className="msg-subject ellipsis">
+                {accountLabel && <span className="tag account-tag">{accountLabel(m.accountId)}</span>}
                 {m.draft && <span className="tag">Draft</span>}
                 {m.subject || <span className="muted">(no subject)</span>}
               </div>
@@ -88,9 +97,9 @@ export function MessageList({
         );
       })}
       {loading && <div className="list-empty muted">Loading…</div>}
-      {!loading && messages.length > 0 && messages.length < total && (
+      {!loading && items.length > 0 && hasMore && (
         <button className="btn btn-ghost load-more" onClick={onLoadMore}>
-          Load more ({total - messages.length} older)
+          Load older messages
         </button>
       )}
     </div>

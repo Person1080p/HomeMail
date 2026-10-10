@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -12,6 +14,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@xmpp/component": "0.14.0",
+    "@xmpp/xml": "0.14.0",
     "better-sqlite3": "13.0.3",
     "express": "5.2.1",
     "fast-xml-parser": "5.11.1",
@@ -23,6 +27,7 @@
     "nodemailer": "10.0.10",
     "qrcode": "1.5.4",
     "sanitize-html": "2.17.7",
+    "smtp-server": "3.19.13",
     "zod": "4.6.5"
   },
   "devDependencies": {
@@ -33,6 +38,8 @@
     "@types/node": "24.13.6",
     "@types/qrcode": "1.5.6",
     "@types/sanitize-html": "2.16.1",
+    "@types/smtp-server": "3.5.13",
+    "@xmpp/client": "0.14.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   }

@@ -1,5 +1,6 @@
 import { type AccountRow, readSecret } from '../accounts.js';
 import { presetById, type Security } from '../providers.js';
+import { mailHostname } from '../server-settings.js';
 
 export interface ExportServer {
   host: string;
@@ -38,12 +39,18 @@ export interface ExportFile {
 
 export function toExportAccount(a: AccountRow, includePasswords: boolean): ExportAccount {
   const secret = includePasswords && a.auth_type === 'password' ? readSecret(a) : {};
+  if (a.protocol === 'local') throw new Error('Built-in mailboxes cannot be exported');
+  // HomeMail reaches a bundled Stalwart over the internal Docker network; other apps use its public name.
+  if (a.managed === 'stalwart') {
+    const host = mailHostname();
+    a = { ...a, in_host: host, in_port: 993, in_security: 'tls', smtp_host: host, smtp_port: 465, smtp_security: 'tls', allow_insecure_tls: 0 };
+  }
   return {
     label: a.label,
     email: a.email,
     displayName: a.display_name,
     provider: a.provider,
-    protocol: a.protocol,
+    protocol: a.protocol as 'imap' | 'pop3',
     incoming: { host: a.in_host, port: a.in_port, security: a.in_security, username: a.in_username },
     smtp: { host: a.smtp_host, port: a.smtp_port, security: a.smtp_security, username: a.smtp_username },
     authType: a.auth_type,

@@ -11,6 +11,11 @@ import { accountsRouter } from './routes/accounts.js';
 import { mailRouter } from './routes/mail.js';
 import { transferRouter } from './routes/transfer.js';
 import { syncPop3 } from './mail/local.js';
+import { chatRouter } from './routes/chat.js';
+import { serverRouter } from './routes/server.js';
+import { startXmpp } from './chat/xmpp.js';
+import { startBuiltinSmtp } from './mailserver/builtin.js';
+import { syncAllMailboxes } from './mailserver/provision.js';
 
 const app = express();
 app.set('trust proxy', config.trustProxy);
@@ -52,7 +57,7 @@ api.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
-api.use(authRouter, accountsRouter, mailRouter, transferRouter);
+api.use(authRouter, accountsRouter, mailRouter, transferRouter, chatRouter, serverRouter);
 api.use((_req, _res, next) => next(new HttpError(404, 'Unknown API endpoint')));
 app.use('/api', api);
 
@@ -89,6 +94,11 @@ if (pollMinutes > 0) {
 const server = app.listen(config.port, config.host, () => {
   console.log(`HomeMail listening on http://${config.host}:${config.port} (public URL: ${config.publicUrl})`);
 });
+
+// Background services; each logs its own problems and never stops the web app from starting.
+startBuiltinSmtp().catch((e) => console.warn('[mailserver]', e.message));
+syncAllMailboxes().catch((e) => console.warn('[mailserver]', e.message));
+startXmpp().catch((e) => console.warn('[xmpp]', e.message));
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {

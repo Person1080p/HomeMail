@@ -81,18 +81,19 @@ export function AccountsSettings({ params }: { params: URLSearchParams }) {
       {accounts.length === 0 && <p className="muted">No accounts yet.</p>}
       <ul className="account-cards">
         {accounts.map((a, i) => {
-          const needsAuth = a.authType === 'oauth2' ? !a.oauthConnected : !a.hasPassword;
+          const needsAuth = a.protocol !== 'local' && (a.authType === 'oauth2' ? !a.oauthConnected : !a.hasPassword);
           return (
             <li key={a.id} className="card account-card">
               <div className="account-card-main">
                 <div className="account-title">
                   <strong>{a.label}</strong>
-                  <span className="tag">{a.protocol.toUpperCase()}</span>
+                  {a.managed ? <span className="tag">This server</span> : <span className="tag">{a.protocol.toUpperCase()}</span>}
                   {a.authType === 'oauth2' && <span className="tag">{a.oauthProvider === 'google' ? 'Google sign-in' : 'Microsoft sign-in'}</span>}
                 </div>
                 <div className="muted small">
                   {a.displayName ? `${a.displayName} · ` : ''}
-                  {a.email} · {a.incoming.host}:{a.incoming.port}
+                  {a.email}
+                  {a.protocol !== 'local' && !a.managed && ` · ${a.incoming.host}:${a.incoming.port}`}
                 </div>
                 {needsAuth && (
                   <div className="warn-text small">
@@ -114,15 +115,19 @@ export function AccountsSettings({ params }: { params: URLSearchParams }) {
                     Reconnect
                   </button>
                 )}
-                <button className="btn btn-sm" onClick={() => test(a)} disabled={testing === a.id}>
-                  {testing === a.id ? 'Testing…' : 'Test'}
-                </button>
+                {a.protocol !== 'local' && (
+                  <button className="btn btn-sm" onClick={() => test(a)} disabled={testing === a.id}>
+                    {testing === a.id ? 'Testing…' : 'Test'}
+                  </button>
+                )}
                 <button className="btn btn-sm" onClick={() => setEditing(a)}>
                   Edit
                 </button>
-                <button className="btn btn-sm btn-danger" onClick={() => remove(a)}>
-                  Remove
-                </button>
+                {!a.managed && (
+                  <button className="btn btn-sm btn-danger" onClick={() => remove(a)}>
+                    Remove
+                  </button>
+                )}
               </div>
             </li>
           );

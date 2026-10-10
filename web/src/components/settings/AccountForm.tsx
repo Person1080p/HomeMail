@@ -47,7 +47,7 @@ function fromAccount(a: Account): FormState {
     provider: a.provider,
     email: a.email,
     displayName: a.displayName,
-    protocol: a.protocol,
+    protocol: a.protocol === 'pop3' ? 'pop3' : 'imap',
     incoming: { ...a.incoming },
     smtp: { ...a.smtp },
     password: '',
@@ -93,7 +93,60 @@ function ServerFields({ title, value, onChange, kind }: { title: string; value: 
   );
 }
 
+/** The user's mailbox on this server: only the name, display name and signature are theirs to change. */
+function ManagedAccountForm({ account, onDone }: { account: Account; onDone: () => void }) {
+  const toast = useToast();
+  const [label, setLabel] = useState(account.label);
+  const [displayName, setDisplayName] = useState(account.displayName);
+  const [signature, setSignature] = useState(account.signature);
+  const [busy, setBusy] = useState(false);
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api('PUT', `/accounts/${account.id}`, { label, displayName, signature });
+      toast('Saved', 'success');
+      onDone();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="settings-section narrow" onSubmit={save}>
+      <h1>{account.email}</h1>
+      <p className="muted">Your mailbox on this server. The server settings are managed by your HomeMail admin.</p>
+      <label>
+        Account name <span className="muted">(shown in the folder list)</span>
+        <input value={label} onChange={(e) => setLabel(e.target.value)} />
+      </label>
+      <label>
+        Your name
+        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+      </label>
+      <label>
+        Signature
+        <textarea rows={3} value={signature} onChange={(e) => setSignature(e.target.value)} />
+      </label>
+      <div className="form-actions">
+        <button className="btn btn-primary" disabled={busy}>
+          Save
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function AccountForm({ account, onDone }: { account: Account | null; onDone: () => void }) {
+  if (account?.managed) return <ManagedAccountForm account={account} onDone={onDone} />;
+  return <ExternalAccountForm account={account} onDone={onDone} />;
+}
+
+function ExternalAccountForm({ account, onDone }: { account: Account | null; onDone: () => void }) {
   const toast = useToast();
   const [providers, setProviders] = useState<Provider[] | null>(null);
   const [step, setStep] = useState<'email' | 'details'>(account ? 'details' : 'email');

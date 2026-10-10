@@ -33,7 +33,9 @@ const exportBody = z.object({
   currentPassword: z.string().max(512).optional(),
 });
 
-async function selectAccounts(userId: number, body: z.infer<typeof exportBody>): Promise<ExportAccount[]> {
+type Skipped = { label: string; reason: string }[];
+
+async function selectAccounts(userId: number, body: z.infer<typeof exportBody>): Promise<{ accounts: ExportAccount[]; skipped: Skipped }> {
   if (body.includePasswords) {
     // Re-authenticate before handing out plaintext mail passwords.
     const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string };
@@ -44,22 +46,31 @@ async function selectAccounts(userId: number, body: z.infer<typeof exportBody>):
   const all = listAccounts(userId);
   const chosen = body.accountIds.length ? all.filter((a) => body.accountIds.includes(a.id)) : all;
   if (!chosen.length) throw badRequest('No accounts selected');
-  return chosen.map((a) => toExportAccount(a, body.includePasswords));
+  // Built-in mailboxes live inside HomeMail; other apps have no way to reach them.
+  const skipped = chosen
+    .filter((a) => a.protocol === 'local')
+    .map((a) => ({ label: a.label, reason: "HomeMail's built-in mail server has no IMAP access for other apps" }));
+  const accounts = chosen.filter((a) => a.protocol !== 'local').map((a) => toExportAccount(a, body.includePasswords));
+  if (!accounts.length) throw badRequest(skipped[0]?.reason ?? 'No accounts selected');
+  return { accounts, skipped };
 }
 
 transferRouter.post('/export', requireUser, async (req, res) => {
   const body = parse(exportBody, req.body);
   const exporter = EXPORTERS[body.format];
   if (!exporter) throw badRequest('Unknown export format');
-  const file = await exporter(await selectAccounts(req.user!.id, body));
-  res.setHeader('X-HomeMail-Skipped', encodeURIComponent(JSON.stringify(file.skipped)));
+  const { accounts, skipped } = await selectAccounts(req.user!.id, body);
+  const file = await exporter(accounts);
+  res.setHeader('X-HomeMail-Skipped', encodeURIComponent(JSON.stringify([...skipped, ...file.skipped])));
   res.attachment(file.filename).type(file.contentType).send(file.body);
 });
 
 /** QR codes for Thunderbird for Android's "Import from Thunderbird desktop". */
 transferRouter.post('/export/qr', requireUser, async (req, res) => {
   const body = parse(exportBody, req.body);
-  res.json(await thunderbirdQrCodes(await selectAccounts(req.user!.id, body)));
+  const { accounts, skipped } = await selectAccounts(req.user!.id, body);
+  const qr = await thunderbirdQrCodes(accounts);
+  res.json({ ...qr, skipped: [...skipped, ...qr.skipped] });
 });
 
 /* ---------- import ---------- */

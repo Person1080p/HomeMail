@@ -3,7 +3,12 @@
 A self-hosted, multi-user webmail client in the spirit of Thunderbird, built for homelabs.
 
 - **Multiple users**: each with their own login and their own set of mail accounts. The first user becomes the admin; admins add users (or open registration).
-- **Many accounts per user** in one three-pane view (folders | messages | reader), with unread counts, search, stars, drag-and-drop to folders, drafts, attachments, rich-text compose, signatures, keyboard shortcuts, dark mode and a phone layout.
+- **Many accounts per user** in one three-pane view (folders | messages | reader), with an **All Inboxes** view that merges every account, unread counts, search, stars, drag-and-drop to folders, drafts, attachments, signatures, keyboard shortcuts, dark mode and a phone layout.
+- **Tabs above the reading pane**: clicking a message shows it in the *Preview* tab; double-click (or Enter) opens it in its own tab, and every new message, reply and forward opens in a compose tab there, with the folder list and message list still beside it. The expand button gives a tab the full width. Open tabs come back after a reload.
+- **Outlook-style editor**: fonts and sizes, colours and highlight, headings, lists and indent, alignment, sub/superscript, links, pasted or inserted pictures (sent as proper inline attachments), tables, importance and read receipts. Replies keep the original message intact below what you write.
+- **Your own addresses on the server**: every user gets `username@your-domain` for email and for chat.
+  - **Mail**: a bundled [Stalwart](https://stalw.art) mail server (Docker default, real IMAP that also works in Thunderbird and on phones), a minimal built-in server (default when run from source), another server you already run, or off. Admins switch in *Settings → Server*.
+  - **Chat**: real-time direct messages and group chats with unread badges, typing and online indicators, and desktop notifications. With the bundled [Prosody](https://prosody.im) (Docker default), people on other XMPP servers and apps (Conversations, Gajim, …) can chat with your users too.
 - **Providers**: Gmail, Outlook.com/Hotmail, Microsoft 365, Yahoo, AOL, iCloud (Apple), Proton Mail (through Proton Mail Bridge), Fastmail, Zoho, GMX, and any IMAP or POP3 server. Settings are detected from the email address the way Thunderbird does it (built-in presets, MX lookup, Mozilla ISPDB).
 - **Export** a user's accounts to Thunderbird, Thunderbird for Android (QR codes), K-9 Mail, Apple Mail (macOS/iOS), Mozilla autoconfig XML (Evolution, KMail, FairEmail…), a printable settings sheet, or a HomeMail backup.
 - **Import** accounts from your existing Thunderbird (`prefs.js`) or a HomeMail backup.
@@ -16,19 +21,51 @@ A self-hosted, multi-user webmail client in the spirit of Thunderbird, built for
 
 ```bash
 cp .env.example .env
-# Set APP_SECRET (openssl rand -base64 48) and PUBLIC_URL in .env
+# In .env set: APP_SECRET (openssl rand -base64 48), STALWART_ADMIN_PASSWORD and
+# XMPP_COMPONENT_SECRET (openssl rand -base64 24 each), and PUBLIC_URL.
 docker compose up -d --build
 ```
 
 Open `PUBLIC_URL` (default http://localhost:3000) and create the first user. That user is the administrator.
 
-Mail data lives in the `homemail-data` volume (SQLite database plus downloaded POP3 mail). **Back up both that volume and your `APP_SECRET`**: stored mail passwords and OAuth tokens are encrypted with it.
+This starts three containers: `homemail` (the web app), `homemail-stalwart` (mail server) and `homemail-prosody` (chat federation). Stalwart publishes ports 25, 465 and 993, and Prosody port 5269; remove those port mappings in `docker-compose.yml` if you don't want them on the host.
+
+Data lives in the `homemail-data`, `stalwart-data` and `prosody-data` volumes. **Back up those volumes and your `.env`**: stored mail passwords and OAuth tokens are encrypted with `APP_SECRET`.
 
 ### HTTPS / reverse proxy
 
 Put HomeMail behind your usual reverse proxy (Caddy, Traefik, nginx, NPM…) and set `PUBLIC_URL=https://mail.your.domain`. With an `https` URL, session cookies are marked `Secure`. By default, proxies on loopback and private networks are trusted for `X-Forwarded-*` headers (`TRUST_PROXY`).
 
 HomeMail does **not** need to be reachable from the internet, even for Google/Microsoft sign-in. Those redirects happen in your browser. It does need HTTPS and a real domain name (one that resolves on your LAN is fine; Let's Encrypt DNS challenge works well).
+
+---
+
+## Your server's own email and chat addresses
+
+Every user gets `username@CHAT_DOMAIN` for chat and `username@MAIL_DOMAIN` for email (they can be the same domain). The defaults, `home.mail` for chat and `home.internal` for Stalwart mail, only work between users on this server. *My addresses & password* in Settings shows each user their addresses.
+
+To exchange mail and chat with the rest of the internet, use a domain you own. Set it in `.env` (`SERVER_DOMAIN=example.com`) or in *Settings → Server*, then publish the DNS records that page lists.
+
+### Mail server modes (*Settings → Server*)
+
+| Mode | What users get | Notes |
+|---|---|---|
+| **Stalwart** (Docker default) | A real IMAP mailbox per user, created automatically, that also works in Thunderbird and on phones. *My addresses* gives each user an app password and the server settings. | Spam filtering, DKIM and TLS certificates are handled by Stalwart; its admin page is at http://127.0.0.1:8080/admin (user `admin`, password `STALWART_ADMIN_PASSWORD`). The Server page shows the DNS records Stalwart wants. Stalwart only accepts domains under a real top-level domain, hence `home.internal` rather than `home.mail`. |
+| **Built-in** (default from source) | A mailbox inside HomeMail. Mail between users is delivered instantly. | Receives mail over SMTP on `BUILTIN_SMTP_PORT` (forward port 25 to it) for your users only, so it is never an open relay. Sends to other domains directly or through a relay (smarthost), DKIM-signed, with a retrying queue and bounces. No IMAP for other apps and no spam filter. |
+| **External** | Nothing is created. When users add an address on your domain, the admin's server settings are filled in. | For an existing Mailcow, docker-mailserver, etc. |
+| **Off** | Only outside accounts. | |
+
+Sending mail from home: many ISPs block outgoing port 25 and residential IPs are often on block lists, so most homelabs need a relay (your ISP's, SMTP2GO, Mailgun, Amazon SES…). Set it in *Settings → Server* for the built-in server, or in Stalwart's admin page.
+
+### Chat federation (XMPP)
+
+HomeMail connects to Prosody as an XMPP component and answers for every `user@CHAT_DOMAIN`, so chats stay in HomeMail while Prosody handles the connections to other servers. For the public XMPP network you need:
+
+- DNS: `_xmpp-server._tcp.CHAT_DOMAIN. SRV 0 5 5269 your.host.` (or an A record on the domain itself),
+- port 5269 reachable from the internet,
+- a certificate for the chat domain in `deploy/prosody/certs/` (see the README there).
+
+Admins can turn federation off in *Settings → Server*. Direct messages federate; group chats are for users on this server.
 
 ---
 
@@ -101,11 +138,14 @@ Thunderbird keeps passwords encrypted in its own store, so afterwards you enter 
 - Email HTML is sanitised and rendered in a sandboxed, script-free iframe. Remote images, fonts and styles are blocked until you click *Show* (or trust the sender), the same way Thunderbird handles remote content.
 - Attachments always download rather than render on HomeMail's own origin.
 - A mail client must connect wherever its user points it, so any HomeMail user can make the server open IMAP/POP3/SMTP connections to arbitrary hosts and ports. Only give accounts to people you trust, and keep open registration off on anything reachable from the internet.
+- The built-in SMTP server accepts mail only for existing users on the mail domain, never relays, and has no spam filtering. Put it behind Stalwart, or keep port 25 closed, if spam is a concern.
+- With federation on, anyone on the XMPP network can message your users and see whether they are online (users can delete unwanted conversations).
+- Pictures pasted into a message are sent as inline attachments, and message HTML is sanitised before sending.
 - If `APP_SECRET` is not set, HomeMail generates one into the data volume and warns you. That is convenient, but the key then sits next to the data it protects. Set it explicitly for real use.
 
 ## Keyboard shortcuts
 
-`j`/`k` or ↓/↑ next/previous message · `r` reply · `a` reply all · `f` forward · `c` write · `s` star · `u` toggle read · `Del` delete · `Ctrl+Enter` send.
+`j`/`k` or ↓/↑ next/previous message · `Enter` open in a tab · `r` reply · `a` reply all · `f` forward · `c` write · `s` star · `u` toggle read · `Del` delete · `Ctrl+Enter` send · `Ctrl+S` save draft · `Enter` sends a chat message (`Shift+Enter` for a new line).
 
 ## Configuration
 
@@ -122,22 +162,32 @@ npm run typecheck
 npm run build        # web/dist + server/dist; then: npm start
 ```
 
-End-to-end test against a throwaway [GreenMail](https://greenmail-mail-test.github.io/greenmail/) server (it accepts any password):
+End-to-end tests (needs Docker): `./scripts/e2e.sh` starts throwaway [GreenMail](https://greenmail-mail-test.github.io/greenmail/), Stalwart and Prosody containers and a fresh HomeMail for each suite, then cleans up:
 
-```bash
-docker run -d --rm --name greenmail -p 3025:3025 -p 3110:3110 -p 3143:3143 -p 3465:3465 -p 3993:3993 -p 3995:3995 \
-  -e GREENMAIL_OPTS='-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=alice:alicepass@example.test,bob:bobpass@example.test -Dgreenmail.users.login=email' \
-  greenmail/standalone:2.1.3
-DATA_DIR=$(mktemp -d) PORT=3311 npm run dev -w server &
-node scripts/e2e-greenmail.mjs
-```
+| Suite | Covers |
+|---|---|
+| `e2e-greenmail` | the mail client against IMAP, POP3 and SMTP; exports and imports |
+| `e2e-server` | the built-in mail server (local delivery, inbound SMTP, relay with DKIM, queue), chat, admin settings |
+| `e2e-stalwart` | mailbox provisioning, sending and app passwords on Stalwart |
+| `e2e-xmpp` | federation: a user on another XMPP domain chatting with a HomeMail user |
 
-Layout: `server/src` (Express API: `mail/` holds the IMAP backend via imapflow, a small POP3 client, the local store, SMTP via nodemailer and message rendering; `export/` and `import/` hold the format converters) and `web/src` (React UI).
+Run one with e.g. `./scripts/e2e.sh e2e-xmpp`.
+
+### VS Code
+
+Open the folder in VS Code:
+
+- **Run and Debug → "Full stack (server + web)"** (F5) starts the API under the debugger with breakpoints in `server/src`, starts Vite, and opens Chrome on http://localhost:5173 with breakpoints in `web/src`. Dev data goes to `./data`, and `.env` is loaded if present.
+- **Terminal → Run Task…** offers `dev: server + web` (no debugger), `build` (Ctrl+Shift+B), `start (production build)`, `typecheck`, `test: e2e (Docker)`, and `docker: compose up / logs / down`.
+
+Layout: `server/src` (Express API: `mail/` holds the IMAP backend via imapflow, a small POP3 client, the local store, SMTP via nodemailer and message rendering; `mailserver/` the built-in server and Stalwart provisioning; `chat/` chat and the XMPP gateway; `export/` and `import/` the format converters), `web/src` (React UI) and `deploy/` (Stalwart and Prosody configs).
 
 ## Known limitations
 
 - IMAP is used live, with no offline cache, so search uses the server's IMAP SEARCH and new mail is picked up by polling every 60 s rather than IDLE push.
-- Not yet implemented: conversation threading, an address book or contact autocomplete, calendars, PGP/S-MIME, message filters, moving messages between accounts, more than one compose window, HTML signatures.
+- Not yet implemented: conversation threading, an address book or contact autocomplete, calendars, PGP/S-MIME, message filters, moving messages between accounts, HTML signatures, file sharing in chat, federated group chats, logging in to your chat address from an XMPP app.
+- The built-in mail server keeps mailboxes inside HomeMail (no IMAP for other apps) and has no spam filter; use Stalwart for either.
 - POP3 downloads at most 500 new messages per check (newest first). The rest follow on later checks.
 - Tested with GreenMail (IMAP, POP3, SMTP, TLS, STARTTLS and plain). Gmail, Outlook and the other real providers use the same standard protocols but have not been exercised from this build. The Google and Microsoft sign-in flows need registered apps, so they are untested end to end.
+- Stalwart (v0.16.23) and Prosody (13.0) were tested in Docker on this build, including federation between two XMPP domains on one Prosody. Federation with the public XMPP network and mail to and from the internet depend on your DNS, ports and certificates and were not tested.
 - The Thunderbird `prefs.js` was verified by loading it into a Thunderbird 140 ESR profile. The QR and `.k9s` formats were checked against the Thunderbird for Android source code, not on a phone.

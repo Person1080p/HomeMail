@@ -1,0 +1,18 @@
+{
+  // Node 24 is installed in ~/.local/bin; make sure integrated terminals find it.
+  "terminal.integrated.env.linux": {
+    "PATH": "${env:HOME}/.local/bin:${env:PATH}"
+  },
+  "files.exclude": {
+    "**/dist": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "data": true,
+    "package-lock.json": true
+  },
+  "editor.tabSize": 2,
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true
+}
