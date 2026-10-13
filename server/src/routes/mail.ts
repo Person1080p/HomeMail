@@ -10,6 +10,7 @@ import { attachmentName, parseRaw, renderMessage } from '../mail/parse.js';
 import { type ComposeInput, saveDraft, sendMessage } from '../mail/smtp.js';
 import { FOLDER_ORDER } from '../mail/types.js';
 import { syncPop3 } from '../mail/local.js';
+import { type UnsubscribeMethod, parseMailto, recordUnsubscribe, unsubscribeOneClick, unsubscribedAt } from '../mail/unsubscribe.js';
 
 export const mailRouter = Router();
 
@@ -106,7 +107,41 @@ mailRouter.get('/accounts/:accountId/messages/:id', requireUser, async (req, res
   const raw = await backend.getSource(q.folder, id);
   const msg = await renderMessage(raw);
   if (q.peek !== '1') await backend.setFlags(q.folder, [id], { seen: true });
-  res.json({ id, folder: q.folder, size: raw.length, ...msg });
+  const unsubscribed = msg.unsubscribe ? unsubscribedAt(req.user!.id, msg.unsubscribe.listKey) : null;
+  res.json({ id, folder: q.folder, size: raw.length, ...msg, unsubscribedAt: unsubscribed });
+});
+
+/**
+ * Unsubscribes from the mailing list a message came from: a one-click request or an
+ * unsubscribe email when the sender supports one. Web-only lists are opened by the
+ * browser, which then calls this with method "web" so the choice is remembered.
+ */
+mailRouter.post('/accounts/:accountId/messages/:id/unsubscribe', requireUser, async (req, res) => {
+  const body = parse(z.object({ folder: folderParam, method: z.enum(['auto', 'web']).default('auto'), trash: z.boolean().default(false) }), req.body);
+  const id = Number(req.params.id);
+  const acc = account(req);
+  const backend = backendFor(acc);
+  const info = (await renderMessage(await backend.getSource(body.folder, id))).unsubscribe;
+  if (!info) throw badRequest('This message has no unsubscribe option');
+
+  let method: UnsubscribeMethod;
+  if (body.method === 'web') {
+    if (!info.web) throw badRequest('This message has no unsubscribe page');
+    method = 'web';
+  } else if (info.oneClick) {
+    await unsubscribeOneClick(info);
+    method = 'one-click';
+  } else if (info.mailto) {
+    const m = parseMailto(info.mailto);
+    await sendMessage(acc, { to: m.to, subject: m.subject, text: m.body, attachments: [] });
+    method = 'mailto';
+  } else {
+    // Only a web page: the browser has to open it.
+    return res.json({ method: 'web', url: info.web, done: false });
+  }
+  recordUnsubscribe(req.user!.id, info, method);
+  if (body.trash) await backend.remove(body.folder, [id]);
+  res.json({ method, done: true, listName: info.listName, at: Date.now() });
 });
 
 mailRouter.get('/accounts/:accountId/messages/:id/raw', requireUser, async (req, res) => {

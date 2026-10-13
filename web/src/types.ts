@@ -133,6 +133,18 @@ export interface FullMessage {
   text: string;
   hasRemoteContent: boolean;
   attachments: AttachmentInfo[];
+  unsubscribe: UnsubscribeInfo | null;
+  /** When the user last unsubscribed from this list, if ever. */
+  unsubscribedAt: number | null;
+}
+
+export interface UnsubscribeInfo {
+  oneClick: string | null;
+  web: string | null;
+  mailto: string | null;
+  fromBody: boolean;
+  listKey: string;
+  listName: string;
 }
 
 export interface MailRef {

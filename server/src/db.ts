@@ -231,6 +231,17 @@ const migrations: string[] = [
   CREATE INDEX calendar_objects_uid ON calendar_objects(calendar_id, uid);
   CREATE INDEX calendar_objects_range ON calendar_objects(calendar_id, range_start);
   `,
+  `
+  -- v4: mailing lists a user unsubscribed from (by List-Id, else sender address).
+  CREATE TABLE unsubscribes (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    list_key TEXT NOT NULL,
+    list_name TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL CHECK (method IN ('one-click', 'mailto', 'web')),
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, list_key)
+  );
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

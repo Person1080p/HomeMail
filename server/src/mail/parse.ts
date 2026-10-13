@@ -1,6 +1,7 @@
 import { simpleParser, type AddressObject, type Attachment, type ParsedMail } from 'mailparser';
 import sanitizeHtml from 'sanitize-html';
 import type { Addr } from './types.js';
+import { type UnsubscribeInfo, unsubscribeInfo } from './unsubscribe.js';
 
 export function addrList(a: AddressObject | AddressObject[] | undefined): Addr[] {
   const list = Array.isArray(a) ? a : a ? [a] : [];
@@ -66,6 +67,7 @@ export interface ParsedMessage {
   text: string;
   hasRemoteContent: boolean;
   attachments: AttachmentInfo[];
+  unsubscribe: UnsubscribeInfo | null;
 }
 
 export const attachmentName = (a: Attachment, i: number) => a.filename || `attachment-${i + 1}${a.contentType === 'message/rfc822' ? '.eml' : ''}`;
@@ -102,6 +104,7 @@ export async function renderMessage(raw: Buffer): Promise<ParsedMessage> {
     html,
     text: m.text || '',
     hasRemoteContent: html ? REMOTE_RE.test(html) : false,
+    unsubscribe: unsubscribeInfo(m, html),
     attachments: m.attachments.map((a, index) => ({
       index,
       filename: attachmentName(a, index),

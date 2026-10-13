@@ -18,6 +18,9 @@ import { startCalendarSync } from './calendar/service.js';
 import { startXmpp } from './chat/xmpp.js';
 import { startBuiltinSmtp } from './mailserver/builtin.js';
 import { syncAllMailboxes } from './mailserver/provision.js';
+import { warnIfStaleBuild } from './stale-build.js';
+
+warnIfStaleBuild();
 
 const app = express();
 app.set('trust proxy', config.trustProxy);

@@ -1,5 +1,6 @@
 /** Small stroke icon set (24px grid), drawn inline so no icon font is needed. */
 const PATHS: Record<string, string> = {
+  bellOff: 'M13.73 21a2 2 0 0 1-3.46 0 M18.63 13A17.89 17.89 0 0 1 18 8 M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14 M18 8a6 6 0 0 0-9.33-5 M1 1l22 22',
   expand: 'M15 3h6v6 M9 21H3v-6 M21 3l-7 7 M3 21l7-7',
   collapse: 'M4 14h6v6 M20 10h-6V4 M14 10l7-7 M3 21l7-7',
   chat: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',

@@ -142,6 +142,49 @@ ok(!!outside, 'mail from outside is in bob\'s inbox');
 r = await call('b', 'GET', `/accounts/${bobBox}/messages/${outside.id}?folder=INBOX`);
 ok(r.json.text.includes('hello from the internet'), 'inbound message body intact');
 
+/* ---------- unsubscribe ---------- */
+
+const newsletter = (subject, headers, html = '<p>News!</p>') =>
+  smtp.sendMail({ from: 'Shop News <news@shop.example.test>', to: 'bob@home.mail', subject, html, headers });
+await newsletter('newsletter by email', { 'List-Id': 'Shop News <news.shop.example.test>', 'List-Unsubscribe': '<mailto:alice@home.mail?subject=unsubscribe%20bob>' });
+await newsletter('newsletter one-click private', {
+  'List-Unsubscribe': '<https://127.0.0.1/unsub?u=1>, <mailto:nobody@shop.example.test>',
+  'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+});
+await newsletter('newsletter body link', {}, '<p>Hi</p><p><a href="https://shop.example.test/prefs?u=9&amp;t=2">Unsubscribe from these emails</a></p>');
+await newsletter('plain message', {}, '<p>No lists here. <a href="https://example.test/about">About us</a></p>');
+await sleep(400);
+const findMsg = async (subject) => {
+  const list = await call('b', 'GET', `/accounts/${bobBox}/messages?folder=INBOX&q=${encodeURIComponent(subject)}`);
+  const m = list.json.messages.find((x) => x.subject === subject);
+  return (await call('b', 'GET', `/accounts/${bobBox}/messages/${m.id}?folder=INBOX`)).json;
+};
+let nl = await findMsg('newsletter by email');
+ok(nl.unsubscribe?.mailto?.startsWith('mailto:alice@home.mail') && nl.unsubscribe.listName === 'Shop News' && nl.unsubscribedAt === null, 'List-Unsubscribe mailto detected with the list name');
+r = await call('b', 'POST', `/accounts/${bobBox}/messages/${nl.id}/unsubscribe`, { folder: 'INBOX' });
+ok(r.status === 200 && r.json.method === 'mailto' && r.json.done, 'unsubscribe by email: ' + JSON.stringify(r.json));
+r = await call('a', 'GET', `/accounts/${aliceBox}/messages?folder=INBOX&q=unsubscribe`);
+ok(r.json.messages.some((m) => m.subject === 'unsubscribe bob' && m.from?.address === 'bob@home.mail'), 'the unsubscribe email reached the list address');
+nl = await findMsg('newsletter by email');
+ok(typeof nl.unsubscribedAt === 'number', 'HomeMail remembers the unsubscribe for that list');
+
+const priv = await findMsg('newsletter one-click private');
+ok(priv.unsubscribe?.oneClick === 'https://127.0.0.1/unsub?u=1', 'RFC 8058 one-click detected');
+r = await call('b', 'POST', `/accounts/${bobBox}/messages/${priv.id}/unsubscribe`, { folder: 'INBOX' });
+ok(r.status === 400 && /private network/.test(r.json.error), 'one-click links to private addresses are refused: ' + r.json.error);
+
+const body = await findMsg('newsletter body link');
+ok(body.unsubscribe?.fromBody && body.unsubscribe.web === 'https://shop.example.test/prefs?u=9&t=2' && !body.unsubscribe.oneClick, 'unsubscribe link found in the body');
+r = await call('b', 'POST', `/accounts/${bobBox}/messages/${body.id}/unsubscribe`, { folder: 'INBOX' });
+ok(r.json.method === 'web' && r.json.done === false, 'web-only unsubscribe is left to the browser');
+r = await call('b', 'POST', `/accounts/${bobBox}/messages/${body.id}/unsubscribe`, { folder: 'INBOX', method: 'web', trash: true });
+ok(r.json.done, 'opening the page is remembered');
+r = await call('b', 'GET', `/accounts/${bobBox}/messages?folder=Trash`);
+ok(r.json.messages.some((m) => m.subject === 'newsletter body link'), 'and the message can go to Trash at the same time');
+
+const plain = await findMsg('plain message');
+ok(plain.unsubscribe === null, 'ordinary links are not mistaken for unsubscribe links');
+
 /* ---------- outbound via relay (GreenMail) with DKIM ---------- */
 
 r = await call('a', 'GET', '/admin/server');

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, mailPath, qs } from '../api';
-import type { Account, Addr, FullMessage } from '../types';
+import type { Account, Addr, FullMessage, UnsubscribeInfo } from '../types';
 import { Icon } from './Icon';
-import { Menu, Spinner, addrText, formatDate, formatSize, linkify, useLocalStorage } from './ui';
+import { Menu, Modal, Spinner, addrText, formatDate, formatSize, linkify, useLocalStorage, useToast } from './ui';
 
 export interface MessageViewActions {
   reply: (m: FullMessage, all: boolean) => void;
@@ -50,6 +50,86 @@ function AddrLine({ label, list }: { label: string; list: Addr[] }) {
   );
 }
 
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+};
+
+/** Confirms an unsubscribe and says plainly what HomeMail is about to do. */
+function UnsubscribeDialog({
+  info,
+  account,
+  onCancel,
+  onConfirm,
+}: {
+  info: UnsubscribeInfo;
+  account: Account;
+  onCancel: () => void;
+  onConfirm: (trash: boolean) => Promise<void>;
+}) {
+  const [trash, setTrash] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const method = info.oneClick ? 'one-click' : info.mailto ? 'mailto' : 'web';
+  const mailtoTo = info.mailto ? decodeURIComponent(info.mailto.replace(/^mailto:/i, '').split('?')[0]) : '';
+  return (
+    <Modal
+      title={`Unsubscribe from ${info.listName}?`}
+      onClose={onCancel}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              await onConfirm(trash);
+              setBusy(false);
+            }}
+          >
+            <Icon name={method === 'web' ? 'external' : 'bellOff'} /> {busy ? 'Unsubscribing…' : method === 'web' ? 'Open unsubscribe page' : 'Unsubscribe'}
+          </button>
+        </>
+      }
+    >
+      {method === 'one-click' && (
+        <p>
+          HomeMail will ask <strong>{hostOf(info.oneClick!)}</strong> to stop sending you these emails. It happens right away; you don't need to visit
+          their website.
+        </p>
+      )}
+      {method === 'mailto' && (
+        <p>
+          HomeMail will send an unsubscribe email to <strong>{mailtoTo}</strong> from <strong>{account.email}</strong>.
+        </p>
+      )}
+      {method === 'web' && !info.fromBody && (
+        <p>
+          This sender asks you to confirm on their website. <strong>{hostOf(info.web!)}</strong> opens in a new tab.
+        </p>
+      )}
+      {method === 'web' && info.fromBody && (
+        <>
+          <p>
+            This message has no standard unsubscribe option, but it contains an unsubscribe link to <strong>{hostOf(info.web!)}</strong>. It opens in a new
+            tab.
+          </p>
+          <p className="warn-text small">Only use it if you trust the sender: scam emails use fake unsubscribe links too. If in doubt, delete the message or mark it as junk.</p>
+        </>
+      )}
+      <label className="inline">
+        <input type="checkbox" checked={trash} onChange={(e) => setTrash(e.target.checked)} />
+        Also move this message to Trash
+      </label>
+    </Modal>
+  );
+}
+
 export function MessageView({
   account,
   folder,
@@ -72,6 +152,8 @@ export function MessageView({
   const [allowRemote, setAllowRemote] = useState(false);
   const [trusted, setTrusted] = useLocalStorage<string[]>('homemail.trustedSenders', []);
   const [showDetails, setShowDetails] = useState(false);
+  const [unsubOpen, setUnsubOpen] = useState(false);
+  const toast = useToast();
   const dark = useMemo(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false, []);
 
   useEffect(() => {
@@ -112,6 +194,28 @@ export function MessageView({
   const attUrl = (index: number, inline = false) =>
     `/api${mailPath(account.id, `/messages/${id}/attachments/${index}?${qs({ folder, inline: inline ? 1 : undefined })}`)}`;
   const visibleAttachments = msg.attachments.filter((a) => !a.inline);
+  const unsub = msg.unsubscribe;
+
+  const unsubscribe = async (trash: boolean) => {
+    if (!unsub) return;
+    const url = mailPath(account.id, `/messages/${id}/unsubscribe`);
+    try {
+      if (!unsub.oneClick && !unsub.mailto) {
+        // The browser must open the page itself, in response to this click.
+        window.open(unsub.web!, '_blank', 'noopener,noreferrer');
+        await api('POST', url, { folder, method: 'web' }).catch(() => {});
+        toast(`Finish unsubscribing from ${unsub.listName} in the new tab`, 'info');
+      } else {
+        await api('POST', url, { folder });
+        toast(`Unsubscribed from ${unsub.listName}`, 'success');
+      }
+      setMsg({ ...msg, unsubscribedAt: Date.now() });
+      setUnsubOpen(false);
+      if (trash) actions.remove();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
   const ccOrMore = msg.cc.length > 0 || msg.bcc.length > 0 || msg.replyTo.length > 0;
 
   return (
@@ -191,7 +295,23 @@ export function MessageView({
         <h1 className="reader-subject">{msg.subject || '(no subject)'}</h1>
         <div className="hdr-line">
           <span className="hdr-label">From</span>
-          <span className="hdr-value strong">{msg.from.map(addrText).join(', ') || '(unknown)'}</span>
+          <span className="hdr-value strong">
+            {msg.from.map(addrText).join(', ') || '(unknown)'}
+            {unsub &&
+              (msg.unsubscribedAt ? (
+                <button
+                  className="unsub-btn done"
+                  onClick={() => setUnsubOpen(true)}
+                  title={`You unsubscribed on ${formatDate(new Date(msg.unsubscribedAt).toISOString(), true)}. Click to try again.`}
+                >
+                  <Icon name="check" size={12} /> Unsubscribed
+                </button>
+              ) : (
+                <button className="unsub-btn" onClick={() => setUnsubOpen(true)} title={`Stop getting emails from ${unsub.listName}`}>
+                  <Icon name="bellOff" size={12} /> Unsubscribe
+                </button>
+              ))}
+          </span>
           <span className="hdr-date" title={formatDate(msg.date, true)}>
             {formatDate(msg.date, true)}
           </span>
@@ -237,6 +357,8 @@ export function MessageView({
           ))}
         </div>
       )}
+
+      {unsubOpen && unsub && <UnsubscribeDialog info={unsub} account={account} onCancel={() => setUnsubOpen(false)} onConfirm={unsubscribe} />}
 
       <iframe
         className="reader-body"
