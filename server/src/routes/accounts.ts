@@ -20,6 +20,8 @@ import {
 import { PRESETS, autodetect, presetById } from '../providers.js';
 import { finishOAuth, oauthAvailable, startOAuth, takePending, type OAuthProviderId } from '../oauth.js';
 import { closeImap, testImap } from '../mail/imap.js';
+import { connectOAuthCalendar } from '../calendar/service.js';
+import { getSource } from '../calendar/store.js';
 import { connectPop3 } from '../mail/local.js';
 import { testSmtp } from '../mail/smtp.js';
 
@@ -220,25 +222,32 @@ accountsRouter.post('/oauth/:provider/start', requireUser, (req, res) => {
   const provider = parse(providerParam, req.params.provider);
   const body = parse(
     z.object({
+      purpose: z.enum(['mail', 'calendar']).default('mail'),
       accountId: z.number().int().optional(),
+      sourceId: z.number().int().optional(),
       protocol: z.enum(['imap', 'pop3']).default('imap'),
       displayName: z.string().trim().max(200).optional(),
     }),
     req.body ?? {},
   );
   if (body.accountId) getAccount(req.user!.id, body.accountId);
+  if (body.sourceId && getSource(req.user!.id, body.sourceId).kind !== provider) throw badRequest('That calendar account is not a ' + provider + ' account');
   res.json({ url: startOAuth({ userId: req.user!.id, provider, ...body }) });
 });
 
 // The provider redirects the browser here; the SameSite=Lax session cookie comes along.
 accountsRouter.get('/oauth/:provider/callback', async (req, res) => {
-  const done = (params: Record<string, string>) => res.redirect(`/#/settings/accounts?${new URLSearchParams(params)}`);
+  let page = '/settings/accounts';
+  const done = (params: Record<string, string>) => res.redirect(`/#${page}?${new URLSearchParams(params)}`);
   try {
     const q = parse(z.object({ state: z.string(), code: z.string().optional(), error: z.string().optional(), error_description: z.string().optional() }), req.query);
     const pending = takePending(q.state);
+    if (pending.purpose === 'calendar') page = '/settings/calendars';
     if (!req.user || req.user.id !== pending.userId) throw new HttpError(403, 'Signed-in user changed during authorisation');
     if (q.error || !q.code) throw badRequest(q.error_description || q.error || 'Authorisation was cancelled');
     const ident = await finishOAuth(pending, q.code);
+
+    if (pending.purpose === 'calendar') return done({ oauth: connectOAuthCalendar(pending, ident) });
 
     if (pending.accountId) {
       const acc = getAccount(pending.userId, pending.accountId);

@@ -13,6 +13,8 @@ import { transferRouter } from './routes/transfer.js';
 import { syncPop3 } from './mail/local.js';
 import { chatRouter } from './routes/chat.js';
 import { serverRouter } from './routes/server.js';
+import { calendarRouter } from './routes/calendar.js';
+import { startCalendarSync } from './calendar/service.js';
 import { startXmpp } from './chat/xmpp.js';
 import { startBuiltinSmtp } from './mailserver/builtin.js';
 import { syncAllMailboxes } from './mailserver/provision.js';
@@ -57,7 +59,7 @@ api.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
-api.use(authRouter, accountsRouter, mailRouter, transferRouter, chatRouter, serverRouter);
+api.use(authRouter, accountsRouter, mailRouter, transferRouter, chatRouter, serverRouter, calendarRouter);
 api.use((_req, _res, next) => next(new HttpError(404, 'Unknown API endpoint')));
 app.use('/api', api);
 
@@ -99,6 +101,7 @@ const server = app.listen(config.port, config.host, () => {
 startBuiltinSmtp().catch((e) => console.warn('[mailserver]', e.message));
 syncAllMailboxes().catch((e) => console.warn('[mailserver]', e.message));
 startXmpp().catch((e) => console.warn('[xmpp]', e.message));
+startCalendarSync();
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {

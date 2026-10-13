@@ -4,6 +4,8 @@ import { type AccountRow, type AccountSecret, getAccountById, readSecret, writeS
 import { HttpError, badRequest } from './http.js';
 
 export type OAuthProviderId = 'google' | 'microsoft';
+/** Mail accounts and calendar accounts sign in separately, each asking only for its own scopes. */
+export type OAuthPurpose = 'mail' | 'calendar';
 
 interface ProviderDef {
   authUrl: string;
@@ -16,12 +18,12 @@ interface ProviderDef {
   scopeOnRefresh: boolean;
 }
 
-function provider(id: OAuthProviderId): ProviderDef {
+function provider(id: OAuthProviderId, purpose: OAuthPurpose = 'mail'): ProviderDef {
   if (id === 'google' && config.google) {
     return {
       authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenUrl: 'https://oauth2.googleapis.com/token',
-      scope: 'openid email profile https://mail.google.com/',
+      scope: purpose === 'calendar' ? 'openid email profile https://www.googleapis.com/auth/calendar' : 'openid email profile https://mail.google.com/',
       clientId: config.google.clientId,
       clientSecret: config.google.clientSecret,
       extraAuthParams: { access_type: 'offline', prompt: 'consent' },
@@ -34,7 +36,9 @@ function provider(id: OAuthProviderId): ProviderDef {
       authUrl: `${base}/authorize`,
       tokenUrl: `${base}/token`,
       scope:
-        'openid email profile offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/POP.AccessAsUser.All https://outlook.office.com/SMTP.Send',
+        purpose === 'calendar'
+          ? 'openid email profile offline_access https://graph.microsoft.com/Calendars.ReadWrite'
+          : 'openid email profile offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/POP.AccessAsUser.All https://outlook.office.com/SMTP.Send',
       clientId: config.microsoft.clientId,
       clientSecret: config.microsoft.clientSecret,
       extraAuthParams: { prompt: 'select_account' },
@@ -50,9 +54,12 @@ export const redirectUri = (id: OAuthProviderId) => `${config.publicUrl}/api/oau
 export interface PendingOAuth {
   userId: number;
   provider: OAuthProviderId;
+  purpose: OAuthPurpose;
   verifier: string;
   /** Re-authorise an existing account instead of creating a new one. */
   accountId?: number;
+  /** Re-authorise an existing calendar account. */
+  sourceId?: number;
   protocol: 'imap' | 'pop3';
   displayName?: string;
   created: number;
@@ -64,7 +71,7 @@ setInterval(() => {
 }, 60_000).unref();
 
 export function startOAuth(p: Omit<PendingOAuth, 'verifier' | 'created'>): string {
-  const def = provider(p.provider);
+  const def = provider(p.provider, p.purpose);
   const state = crypto.randomBytes(24).toString('base64url');
   const verifier = crypto.randomBytes(32).toString('base64url');
   pending.set(state, { ...p, verifier, created: Date.now() });
@@ -118,7 +125,7 @@ export interface OAuthIdentity {
 }
 
 export async function finishOAuth(p: PendingOAuth, code: string): Promise<OAuthIdentity> {
-  const def = provider(p.provider);
+  const def = provider(p.provider, p.purpose);
   const tok = await tokenRequest(def, {
     grant_type: 'authorization_code',
     code,
@@ -137,26 +144,27 @@ export async function finishOAuth(p: PendingOAuth, code: string): Promise<OAuthI
   };
 }
 
-const refreshing = new Map<number, Promise<string>>();
-
-async function refreshAccessToken(account: AccountRow): Promise<string> {
-  const def = provider(account.oauth_provider!);
-  const secret = readSecret(account);
-  if (!secret.refreshToken) throw new HttpError(401, 'This account needs to be signed in again');
-  const params: Record<string, string> = { grant_type: 'refresh_token', refresh_token: secret.refreshToken };
+/** Exchanges a refresh token for a new access token (and, with Microsoft, a new refresh token). */
+export async function refreshGrant(id: OAuthProviderId, purpose: OAuthPurpose, refreshToken: string): Promise<AccountSecret> {
+  const def = provider(id, purpose);
+  const params: Record<string, string> = { grant_type: 'refresh_token', refresh_token: refreshToken };
   if (def.scopeOnRefresh) params.scope = def.scope;
   const tok = await tokenRequest(def, params).catch((err) => {
     throw new HttpError(401, `Sign-in expired, please reconnect this account (${err.message})`);
   });
+  return { accessToken: tok.access_token, refreshToken: tok.refresh_token || refreshToken, expiresAt: Date.now() + (tok.expires_in ?? 3600) * 1000 };
+}
+
+const refreshing = new Map<number, Promise<string>>();
+
+async function refreshAccessToken(account: AccountRow): Promise<string> {
+  const secret = readSecret(account);
+  if (!secret.refreshToken) throw new HttpError(401, 'This account needs to be signed in again');
+  const tok = await refreshGrant(account.oauth_provider!, 'mail', secret.refreshToken);
   // Re-read in case something else updated the row meanwhile; Microsoft rotates refresh tokens.
   const fresh = readSecret(getAccountById(account.id) ?? account);
-  writeSecret(account.id, {
-    ...fresh,
-    accessToken: tok.access_token,
-    refreshToken: tok.refresh_token || fresh.refreshToken,
-    expiresAt: Date.now() + (tok.expires_in ?? 3600) * 1000,
-  });
-  return tok.access_token;
+  writeSecret(account.id, { ...fresh, ...tok });
+  return tok.accessToken!;
 }
 
 export interface ResolvedAuth {

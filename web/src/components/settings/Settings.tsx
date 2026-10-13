@@ -5,9 +5,11 @@ import { Transfer } from './Transfer';
 import { Profile } from './Profile';
 import { Admin } from './Admin';
 import { ServerSettings } from './ServerSettings';
+import { CalendarSettings } from './CalendarSettings';
 
 const TABS = [
   { id: 'accounts', label: 'Mail accounts', icon: 'mail' },
+  { id: 'calendars', label: 'Calendars', icon: 'calendar' },
   { id: 'profile', label: 'My addresses & password', icon: 'user' },
   { id: 'transfer', label: 'Export / import', icon: 'download' },
   { id: 'server', label: 'Server (admin)', icon: 'server', admin: true },
@@ -30,6 +32,7 @@ export function Settings({ route }: { route: string }) {
       </nav>
       <main className="settings-main">
         {tab === 'accounts' && <AccountsSettings params={params} />}
+        {tab === 'calendars' && <CalendarSettings params={params} />}
         {tab === 'transfer' && <Transfer />}
         {tab === 'profile' && <Profile />}
         {tab === 'server' && auth.user?.isAdmin && <ServerSettings />}

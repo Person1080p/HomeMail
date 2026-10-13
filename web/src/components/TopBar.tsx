@@ -6,6 +6,7 @@ import { Menu } from './ui';
 
 const LABELS: Record<TopTab['kind'], { icon: string; text: string }> = {
   mail: { icon: 'inbox', text: 'Mail' },
+  calendar: { icon: 'calendar', text: 'Calendar' },
   chat: { icon: 'chat', text: 'Chat' },
   settings: { icon: 'settings', text: 'Settings' },
 };
@@ -45,7 +46,7 @@ export function TopBar({
       <div className="tab-strip" role="tablist" ref={strip}>
         {tabs.map((t) => {
           const { icon, text } = LABELS[t.kind];
-          const closable = t.kind !== 'mail' && t.kind !== 'chat';
+          const closable = t.kind === 'settings';
           const badge = t.kind === 'mail' ? badges.mail : t.kind === 'chat' ? badges.chat : 0;
           return (
             <div
@@ -92,6 +93,9 @@ export function TopBar({
           <>
             <button role="menuitem" onClick={() => (close(), navigate('/settings/accounts'))}>
               <Icon name="mail" /> Mail accounts
+            </button>
+            <button role="menuitem" onClick={() => (close(), navigate('/settings/calendars'))}>
+              <Icon name="calendar" /> Calendars
             </button>
             <button role="menuitem" onClick={() => (close(), navigate('/settings/profile'))}>
               <Icon name="user" /> My addresses & password

@@ -9,6 +9,7 @@ A self-hosted, multi-user webmail client in the spirit of Thunderbird, built for
 - **Your own addresses on the server**: every user gets `username@your-domain` for email and for chat.
   - **Mail**: a bundled [Stalwart](https://stalw.art) mail server (Docker default, real IMAP that also works in Thunderbird and on phones), a minimal built-in server (default when run from source), another server you already run, or off. Admins switch in *Settings → Server*.
   - **Chat**: real-time direct messages and group chats with unread badges, typing and online indicators, and desktop notifications. With the bundled [Prosody](https://prosody.im) (Docker default), people on other XMPP servers and apps (Conversations, Gajim, …) can chat with your users too.
+- **Calendar**: a Calendar tab with day, work week, week and month views, a mini month and per-calendar colours, plus Outlook-style editing of repeating events (one occurrence or the whole series). Syncs both ways with **Google Calendar**, **Outlook.com / Microsoft 365**, **iCloud**, Fastmail, Yahoo, Nextcloud and any CalDAV server (Radicale, Baïkal, Synology, …). Also subscribes to read-only `.ics`/`webcal` feeds such as public holidays, and keeps calendars on this server.
 - **Providers**: Gmail, Outlook.com/Hotmail, Microsoft 365, Yahoo, AOL, iCloud (Apple), Proton Mail (through Proton Mail Bridge), Fastmail, Zoho, GMX, and any IMAP or POP3 server. Settings are detected from the email address the way Thunderbird does it (built-in presets, MX lookup, Mozilla ISPDB).
 - **Export** a user's accounts to Thunderbird, Thunderbird for Android (QR codes), K-9 Mail, Apple Mail (macOS/iOS), Mozilla autoconfig XML (Evolution, KMail, FairEmail…), a printable settings sheet, or a HomeMail backup.
 - **Import** accounts from your existing Thunderbird (`prefs.js`) or a HomeMail backup.
@@ -83,18 +84,33 @@ Admins can turn federation off in *Settings → Server*. Direct messages federat
 | **Fastmail / Zoho / GMX** | App password (Fastmail), or enable IMAP in the provider's settings first (Zoho, GMX). |
 | **Anything else** | Enter the email address. HomeMail tries known presets, the domain's MX records and Mozilla's ISPDB, then falls back to `imap.`/`smtp.` guesses that you can edit. |
 
+### Calendars
+
+Add calendars in *Settings → Calendars* (or *Add calendar account* in the Calendar tab).
+
+| Service | How to connect |
+|---|---|
+| **Google Calendar** | "Sign in with Google" (admin setup below, with the Calendar API enabled). Without it, subscribe read-only to a calendar's *secret address in iCal format* from Google Calendar's settings. |
+| **Outlook.com / Microsoft 365** | "Sign in with Microsoft" (admin setup below). Events from 6 months back to 18 months ahead are synced. |
+| **iCloud (Apple Calendar)** | Apple ID email and an [app-specific password](https://support.apple.com/en-us/102654). |
+| **Fastmail / Yahoo** | App password. |
+| **Nextcloud, Radicale, Baïkal, Synology, mailbox.org, Posteo, Zoho, Stalwart, …** | "Other CalDAV server": the server or calendar URL plus username and password. HomeMail finds the calendars (RFC 6764 discovery). |
+| **Holiday, sports or school calendars, published calendars** | "Subscribe by URL" with the `.ics` or `webcal://` link. Read-only. |
+
+Changes you make are written to the service straight away. Changes made elsewhere arrive every `CALENDAR_SYNC_MINUTES` (default 15), when you open the Calendar tab, or with its sync button.
+
 IMAP accounts work directly against the server, so nothing is copied into HomeMail. POP3 accounts download mail into HomeMail's data volume. "Leave messages on the server" is on by default, and new mail is checked every `POP3_POLL_MINUTES`.
 
 ---
 
 ## Admin setup: Sign in with Google / Microsoft (optional)
 
-Both flows use the redirect URI `PUBLIC_URL/api/oauth/<provider>/callback`. The admin page in HomeMail shows the exact URIs.
+Both flows use the redirect URI `PUBLIC_URL/api/oauth/<provider>/callback`. The admin page in HomeMail shows the exact URIs. Mail and calendar sign-ins share that URI; each asks only for its own permissions.
 
 ### Google
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), create a project.
-2. Open **Google Auth Platform**. Set up branding with user type **External**. Under *Data access*, add the scope `https://mail.google.com/`.
+2. Open **Google Auth Platform**. Set up branding with user type **External**. Under *Data access*, add the scope `https://mail.google.com/`, and `https://www.googleapis.com/auth/calendar` for calendars. For calendars, also enable the **Google Calendar API** under *APIs & Services → Library*.
 3. Under **Clients**, create an OAuth client of type **Web application**. Add the redirect URI `https://mail.your.domain/api/oauth/google/callback`.
 4. Under **Audience**, set the publishing status to **In production**. Apps left in *Testing* get refresh tokens that expire after 7 days. For personal use the app can stay unverified; people see a "Google hasn't verified this app" warning and click *Advanced → continue*. Unverified apps are limited to 100 users.
 5. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` and restart.
@@ -105,7 +121,7 @@ Both flows use the redirect URI `PUBLIC_URL/api/oauth/<provider>/callback`. The 
 2. Supported account types: **Accounts in any organizational directory and personal Microsoft accounts**.
 3. Redirect URI: platform **Web**, `https://mail.your.domain/api/oauth/microsoft/callback`.
 4. Under *Certificates & secrets*, create a client secret and copy its **value**.
-5. Under *API permissions*, add these Microsoft Graph delegated permissions: `IMAP.AccessAsUser.All`, `POP.AccessAsUser.All`, `SMTP.Send`, `offline_access`, `openid`, `email`, `profile`.
+5. Under *API permissions*, add these Microsoft Graph delegated permissions: `IMAP.AccessAsUser.All`, `POP.AccessAsUser.All`, `SMTP.Send`, `offline_access`, `openid`, `email`, `profile`, and `Calendars.ReadWrite` for calendars.
 6. Set `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` and `MICROSOFT_TENANT=common` (or `consumers` for personal accounts only), then restart.
 
 ---
@@ -145,7 +161,9 @@ Thunderbird keeps passwords encrypted in its own store, so afterwards you enter 
 
 ## Keyboard shortcuts
 
-`j`/`k` or ↓/↑ next/previous message · `Enter` open in a tab · `r` reply · `a` reply all · `f` forward · `c` write · `s` star · `u` toggle read · `Del` delete · `Ctrl+Enter` send · `Ctrl+S` save draft · `Enter` sends a chat message (`Shift+Enter` for a new line).
+Mail: `j`/`k` or ↓/↑ next/previous message · `Enter` open in a tab · `r` reply · `a` reply all · `f` forward · `c` write · `s` star · `u` toggle read · `Del` delete · `Ctrl+Enter` send · `Ctrl+S` save draft · `Enter` sends a chat message (`Shift+Enter` for a new line).
+
+Calendar: `n` new event · `t` today · ←/→ previous/next · `d` day · `x` work week · `w` week · `m` month. Drag across the time grid to create an event; right-click an event or calendar for more.
 
 ## Configuration
 
@@ -180,14 +198,15 @@ Open the folder in VS Code:
 - **Run and Debug → "Full stack (server + web)"** (F5) starts the API under the debugger with breakpoints in `server/src`, starts Vite, and opens Chrome on http://localhost:5173 with breakpoints in `web/src`. Dev data goes to `./data`, and `.env` is loaded if present.
 - **Terminal → Run Task…** offers `dev: server + web` (no debugger), `build` (Ctrl+Shift+B), `start (production build)`, `typecheck`, `test: e2e (Docker)`, and `docker: compose up / logs / down`.
 
-Layout: `server/src` (Express API: `mail/` holds the IMAP backend via imapflow, a small POP3 client, the local store, SMTP via nodemailer and message rendering; `mailserver/` the built-in server and Stalwart provisioning; `chat/` chat and the XMPP gateway; `export/` and `import/` the format converters), `web/src` (React UI) and `deploy/` (Stalwart and Prosody configs).
+Layout: `server/src` (Express API: `calendar/` holds the iCalendar handling and the CalDAV, Google, Microsoft and `.ics` drivers; `mail/` holds the IMAP backend via imapflow, a small POP3 client, the local store, SMTP via nodemailer and message rendering; `mailserver/` the built-in server and Stalwart provisioning; `chat/` chat and the XMPP gateway; `export/` and `import/` the format converters), `web/src` (React UI) and `deploy/` (Stalwart and Prosody configs).
 
 ## Known limitations
 
 - IMAP is used live, with no offline cache, so search uses the server's IMAP SEARCH and new mail is picked up by polling every 60 s rather than IDLE push.
-- Not yet implemented: conversation threading, an address book or contact autocomplete, calendars, PGP/S-MIME, message filters, moving messages between accounts, HTML signatures, file sharing in chat, federated group chats, logging in to your chat address from an XMPP app.
+- Not yet implemented: conversation threading, an address book or contact autocomplete, meeting invitations (attendees, replying to invites from email), event reminders, dragging events to move them, PGP/S-MIME, message filters, moving messages between accounts, HTML signatures, file sharing in chat, federated group chats, logging in to your chat address from an XMPP app.
 - The built-in mail server keeps mailboxes inside HomeMail (no IMAP for other apps) and has no spam filter; use Stalwart for either.
 - POP3 downloads at most 500 new messages per check (newest first). The rest follow on later checks.
+- Calendar sync was tested against Radicale (CalDAV) and `.ics` feeds. The Google Calendar and Microsoft Graph drivers were tested against recorded-style API responses, not the live services. iCloud, Fastmail and the other CalDAV providers use the same protocol as Radicale but were not exercised from this build.
 - Tested with GreenMail (IMAP, POP3, SMTP, TLS, STARTTLS and plain). Gmail, Outlook and the other real providers use the same standard protocols but have not been exercised from this build. The Google and Microsoft sign-in flows need registered apps, so they are untested end to end.
 - Stalwart (v0.16.23) and Prosody (13.0) were tested in Docker on this build, including federation between two XMPP domains on one Prosody. Federation with the public XMPP network and mail to and from the internet depend on your DNS, ports and certificates and were not tested.
 - The Thunderbird `prefs.js` was verified by loading it into a Thunderbird 140 ESR profile. The QR and `.k9s` formats were checked against the Thunderbird for Android source code, not on a phone.

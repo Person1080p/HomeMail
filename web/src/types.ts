@@ -210,3 +210,75 @@ export interface MyAddresses {
     clients: { imap: ServerSettings; smtp: ServerSettings; username: string } | null;
   };
 }
+
+/* ---------- calendar ---------- */
+
+export type CalendarKind = 'local' | 'caldav' | 'google' | 'microsoft' | 'ics';
+
+export interface CalendarSource {
+  id: number;
+  kind: CalendarKind;
+  provider: string;
+  label: string;
+  url: string | null;
+  username: string | null;
+  allowInsecureTls: boolean;
+  hasPassword: boolean;
+  connected: boolean;
+  lastSync: number | null;
+  lastError: string | null;
+  syncing: boolean;
+  calendars: number;
+}
+
+export interface CalendarInfo {
+  id: number;
+  sourceId: number;
+  name: string;
+  color: string;
+  readOnly: boolean;
+  visible: boolean;
+  isDefault: boolean;
+}
+
+export interface CalendarState {
+  sources: CalendarSource[];
+  calendars: CalendarInfo[];
+}
+
+export interface CalendarProviderInfo {
+  id: string;
+  name: string;
+  kind: Exclude<CalendarKind, 'local'>;
+  url?: string;
+  urlHint?: string;
+  usernameHint?: string;
+  notes: string;
+  helpUrl?: string;
+  available: boolean;
+}
+
+/** One occurrence of an event. All-day: dates "YYYY-MM-DD" (end exclusive); timed: ISO UTC. */
+export interface CalEvent {
+  calendarId: number;
+  uid: string;
+  recurrenceId: string | null;
+  summary: string;
+  location: string;
+  description: string;
+  allDay: boolean;
+  start: string;
+  end: string;
+  recurring: boolean;
+  status: 'confirmed' | 'tentative' | 'cancelled';
+}
+
+export interface SeriesInfo {
+  summary: string;
+  location: string;
+  description: string;
+  allDay: boolean;
+  start: string;
+  end: string;
+  rrule: string | null;
+}

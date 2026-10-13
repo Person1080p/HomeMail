@@ -176,6 +176,61 @@ const migrations: string[] = [
   );
   CREATE INDEX outbound_due ON outbound_queue(next_attempt);
   `,
+  `
+  -- v3: calendars. A source is one connection (this server, a CalDAV account,
+  -- Google, Microsoft or a subscribed .ics feed) holding one or more calendars.
+  CREATE TABLE calendar_sources (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('local', 'caldav', 'google', 'microsoft', 'ics')),
+    provider TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL,
+    url TEXT,
+    username TEXT,
+    secret TEXT,
+    allow_insecure_tls INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    last_sync INTEGER,
+    last_error TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX calendar_sources_user ON calendar_sources(user_id);
+  CREATE UNIQUE INDEX calendar_sources_local ON calendar_sources(user_id) WHERE kind = 'local';
+  CREATE TABLE calendars (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES calendar_sources(id) ON DELETE CASCADE,
+    -- CalDAV collection URL, Google or Microsoft calendar id; unique per source.
+    remote_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL,
+    read_only INTEGER NOT NULL DEFAULT 0,
+    visible INTEGER NOT NULL DEFAULT 1,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    -- CalDAV ctag or Google sync token: unchanged means nothing to fetch.
+    sync_state TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (source_id, remote_id)
+  );
+  -- One stored iCalendar object. Usually all of an event's data, but Google keeps
+  -- each changed occurrence separately, so rows are grouped by UID when expanded.
+  CREATE TABLE calendar_objects (
+    id INTEGER PRIMARY KEY,
+    calendar_id INTEGER NOT NULL REFERENCES calendars(id) ON DELETE CASCADE,
+    -- CalDAV href, Google or Microsoft event id, or the UID for local and feed events.
+    remote_id TEXT NOT NULL,
+    etag TEXT,
+    uid TEXT NOT NULL,
+    -- Google and Microsoft: id of the series an occurrence belongs to.
+    series_id TEXT,
+    ics TEXT NOT NULL,
+    -- Span the event can appear in (UTC ms); range_end NULL means it repeats forever.
+    range_start INTEGER NOT NULL,
+    range_end INTEGER,
+    UNIQUE (calendar_id, remote_id)
+  );
+  CREATE INDEX calendar_objects_uid ON calendar_objects(calendar_id, uid);
+  CREATE INDEX calendar_objects_range ON calendar_objects(calendar_id, range_start);
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

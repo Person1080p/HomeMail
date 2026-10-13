@@ -6,7 +6,7 @@ type Listener = (data: any) => void; // eslint-disable-line @typescript-eslint/n
 
 const listeners = new Map<string, Set<Listener>>();
 let source: EventSource | null = null;
-const KNOWN = ['chat.message', 'chat.conversation', 'chat.removed', 'chat.read', 'chat.typing', 'presence', 'mail.new'];
+const KNOWN = ['chat.message', 'chat.conversation', 'chat.removed', 'chat.read', 'chat.typing', 'presence', 'mail.new', 'calendar.changed'];
 
 export function connectEvents() {
   if (source) return;

@@ -9,11 +9,13 @@ import { Settings } from './components/settings/Settings';
 import type { ComposeOptions } from './components/compose/options';
 import { ChatProvider, useChat } from './components/chat/ChatStore';
 import { ChatView } from './components/chat/ChatView';
+import { CalendarView } from './components/calendar/CalendarView';
 import { TopBar } from './components/TopBar';
 import { Spinner } from './components/ui';
 
 const FIXED: TopTab[] = [
   { id: 'mail', kind: 'mail' },
+  { id: 'calendar', kind: 'calendar' },
   { id: 'chat', kind: 'chat' },
 ];
 const PREVIEW: ReaderTab = { id: 'preview', kind: 'preview' };
@@ -45,7 +47,7 @@ function loadTabs(): TabState {
   }
 }
 
-const hashFor = (t: TopTab) => (t.kind === 'chat' ? '/chat' : t.kind === 'settings' ? t.route : '/');
+const hashFor = (t: TopTab) => (t.kind === 'chat' ? '/chat' : t.kind === 'calendar' ? '/calendar' : t.kind === 'settings' ? t.route : '/');
 
 let tabCounter = 0;
 const newTabId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${tabCounter++}`;
@@ -112,7 +114,7 @@ function Workspace({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => 
   const activate = useCallback((id: string) => setTabs((s) => (s.top.some((t) => t.id === id) ? { ...s, active: id as TopTab['id'] } : s)), []);
   const activateReader = useCallback((id: string) => setTabs((s) => (s.reader.some((t) => t.id === id) ? { ...s, readerActive: id } : s)), []);
 
-  /** Applies a hash route: opens Settings, or switches to Mail / Chat. */
+  /** Applies a hash route: opens Settings, or switches to Mail / Calendar / Chat. */
   const applyRoute = useCallback((route: string) => {
     setTabs((s) => {
       if (route.startsWith('/settings')) {
@@ -121,6 +123,7 @@ function Workspace({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => 
         return { ...s, top: exists ? s.top.map((t) => (t.kind === 'settings' ? tab : t)) : [...s.top, tab], active: 'settings' };
       }
       if (route === '/chat') return { ...s, active: 'chat' };
+      if (route === '/calendar') return { ...s, active: 'calendar' };
       if (route === '/' || route === '') return { ...s, active: 'mail' };
       return s;
     });
@@ -155,7 +158,7 @@ function Workspace({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => 
   );
 
   const closeTab = useCallback((id: string, force = false) => {
-    if (id === 'mail' || id === 'chat' || id === 'preview') return;
+    if (id === 'mail' || id === 'calendar' || id === 'chat' || id === 'preview') return;
     if (id === 'settings') {
       setTabs((s) => ({ ...s, top: s.top.filter((t) => t.id !== 'settings'), active: s.active === 'settings' ? 'mail' : s.active }));
       return;
@@ -238,6 +241,7 @@ function Workspace({ auth, refreshAuth }: { auth: AuthState; refreshAuth: () => 
           {top.map((t) => (
             <div key={t.id} className="tab-panel" hidden={t.id !== active} role="tabpanel">
               {t.kind === 'mail' && <MailView active={active === 'mail'} onUnreadChange={setMailUnread} />}
+              {t.kind === 'calendar' && <CalendarView active={active === 'calendar'} />}
               {t.kind === 'chat' && <ChatView active={active === 'chat'} />}
               {t.kind === 'settings' && <Settings route={t.route} />}
             </div>

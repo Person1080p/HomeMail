@@ -3,7 +3,11 @@ import type { Account, AuthState, MessageRef } from './types';
 import type { ComposeOptions } from './components/compose/options';
 
 /** Tabs in the top bar. */
-export type TopTab = { id: 'mail'; kind: 'mail' } | { id: 'chat'; kind: 'chat' } | { id: 'settings'; kind: 'settings'; route: string };
+export type TopTab =
+  | { id: 'mail'; kind: 'mail' }
+  | { id: 'calendar'; kind: 'calendar' }
+  | { id: 'chat'; kind: 'chat' }
+  | { id: 'settings'; kind: 'settings'; route: string };
 
 /** Tabs above the reading pane: the preview of the selected message, opened messages and compose windows. */
 export type ReaderTab =
@@ -20,7 +24,7 @@ export interface AppContextValue {
   compose: (opts?: ComposeOptions) => void;
   /** Opens a message in its own reading-pane tab. */
   openMessage: (ref: MessageRef, title: string) => void;
-  /** Goes to a hash route: "/", "/chat" or "/settings/...". */
+  /** Goes to a hash route: "/", "/calendar", "/chat" or "/settings/...". */
   navigate: (hash: string) => void;
   activeTab: TopTab['id'];
   readerTabs: ReaderTab[];

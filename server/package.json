@@ -21,6 +21,7 @@
     "fast-xml-parser": "5.11.1",
     "fflate": "0.8.3",
     "helmet": "8.3.0",
+    "ical.js": "2.2.1",
     "imapflow": "2.0.6",
     "mailparser": "3.9.28",
     "multer": "2.4.0",
